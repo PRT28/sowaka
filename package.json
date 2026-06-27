@@ -1,0 +1,23 @@
+{
+  "name": "hrms-manager-feedback",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Monorepo for HRMS, manager feedback, admin web, backend, and mobile apps.",
+  "workspaces": [
+    "backend",
+    "hr-admin-web"
+  ],
+  "scripts": {
+    "backend:dev": "npm run dev -w backend",
+    "backend:build": "npm run build -w backend",
+    "backend:start": "npm run start -w backend",
+    "web:dev": "npm run dev -w hr-admin-web",
+    "web:build": "npm run build -w hr-admin-web",
+    "web:preview": "npm run preview -w hr-admin-web",
+    "lint": "npm run lint -w backend && npm run lint -w hr-admin-web",
+    "format": "npm run format -w backend && npm run format -w hr-admin-web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

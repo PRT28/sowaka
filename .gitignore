@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Node / TypeScript
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Vite / React
+.vite/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+ios/Flutter/.last_build_id
+ios/Pods/
+ios/Podfile.lock
+android/.gradle/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.iml
+
+# Misc
+tmp/
+temp/
