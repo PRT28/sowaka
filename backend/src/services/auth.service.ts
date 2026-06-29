@@ -2,8 +2,11 @@ import crypto from 'crypto';
 import { env } from '../config/env';
 import { otpChallenges, users } from '../config/db';
 import { AuthUser } from '../models/auth.model';
+import { User } from '../models/user.model';
 import { generateOtp, hashOtp, isValidEmail } from '../utils/otp.util';
 import { sendOtpEmail } from './email.service';
+
+const defaultCompany = 'Sowaka';
 
 const maxAttempts = 5;
 
@@ -79,35 +82,55 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/**
+ * Bootstrap (or refresh) the master user record on login. HR enriches the rest
+ * of the profile later; here we only set identity fields and login metadata.
+ */
 async function upsertUser(email: string): Promise<AuthUser> {
-  const user = buildUser(email);
-  await users().updateOne(
+  const userId = deriveUserId(email);
+  const name = deriveName(email);
+
+  const doc = await users().findOneAndUpdate(
     { email },
     {
-      $set: user,
-      $setOnInsert: { createdAt: Date.now() },
+      $set: { userId, email, name },
+      $setOnInsert: {
+        lifecycleStatus: 'active',
+        onboardingStatus: 'pending',
+        role: 'manager',
+        org: defaultCompany,
+        createdAt: Date.now(),
+      },
       $currentDate: { lastLoginAt: true },
     },
-    { upsert: true },
+    { upsert: true, returnDocument: 'after' },
   );
-  return user;
+
+  return toAuthUser(doc ?? { userId, email, name, lifecycleStatus: 'active' });
 }
 
-function buildUser(email: string): AuthUser {
+function toAuthUser(user: User): AuthUser {
+  return {
+    id: user.userId,
+    email: user.email,
+    name: user.name,
+    role: user.role ?? 'manager',
+    company: user.org ?? defaultCompany,
+  };
+}
+
+function deriveUserId(email: string): string {
+  return crypto.createHash('sha1').update(email).digest('hex').slice(0, 12);
+}
+
+function deriveName(email: string): string {
   const local = email.split('@')[0] || 'user';
   const name = local
     .split(/[._-]/)
     .filter(Boolean)
     .map((part) => part[0].toUpperCase() + part.slice(1))
     .join(' ');
-
-  return {
-    id: crypto.createHash('sha1').update(email).digest('hex').slice(0, 12),
-    email,
-    name: name || 'Manager',
-    role: 'manager',
-    company: 'Sowaka',
-  };
+  return name || 'Manager';
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {
