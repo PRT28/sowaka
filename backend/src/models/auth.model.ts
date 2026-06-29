@@ -13,3 +13,8 @@ export interface AuthUser {
   role: 'manager' | 'employee';
   company: string;
 }
+
+export interface UserDoc extends AuthUser {
+  createdAt?: number;
+  lastLoginAt?: Date;
+}
