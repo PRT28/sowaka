@@ -25,6 +25,10 @@ export async function verifyOtp(req: Request, res: Response, next: NextFunction)
   }
 }
 
+export function me(req: Request, res: Response) {
+  res.status(200).json({ success: true, user: req.user });
+}
+
 function handleAuthError(error: unknown, res: Response, next: NextFunction) {
   if (error instanceof AuthError) {
     res.status(error.statusCode).json({ success: false, message: error.message });

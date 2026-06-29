@@ -4,6 +4,7 @@ import { otpChallenges, users } from '../config/db';
 import { AuthUser } from '../models/auth.model';
 import { User } from '../models/user.model';
 import { generateOtp, hashOtp, isValidEmail } from '../utils/otp.util';
+import { signAuthToken } from '../utils/token';
 import { sendOtpEmail } from './email.service';
 
 const defaultCompany = 'Sowaka';
@@ -74,7 +75,7 @@ export async function verifyLoginOtp(
   await otpChallenges().deleteOne({ email });
 
   const user = await upsertUser(email);
-  const token = crypto.randomBytes(32).toString('hex');
+  const token = signAuthToken(user);
   return { token, user };
 }
 

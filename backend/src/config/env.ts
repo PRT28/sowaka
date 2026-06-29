@@ -14,6 +14,8 @@ export const env = {
   mongoDbName: process.env.MONGODB_DB ?? 'sowaka',
   otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES ?? 10),
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
+  jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
   zohoSmtp: {
     host: process.env.ZOHO_SMTP_HOST ?? 'smtp.zoho.com',
     port: Number(process.env.ZOHO_SMTP_PORT ?? 465),
