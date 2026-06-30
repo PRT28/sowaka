@@ -6,6 +6,7 @@ export interface OtpChallenge {
   createdAt: number;
 }
 
+/** Shape returned to clients (mobile app) on successful auth. */
 export interface AuthUser {
   id: string;
   email: string;
