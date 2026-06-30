@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { ApiError } from '../utils/api-error';
 
 export const notFoundHandler = (request: Request, response: Response) => {
   response.status(404).json({
@@ -13,6 +14,11 @@ export const errorHandler = (
   _next: NextFunction,
 ) => {
   void _next;
+
+  if (error instanceof ApiError) {
+    response.status(error.statusCode).json({ success: false, message: error.message });
+    return;
+  }
 
   response.status(500).json({
     message: 'Internal server error',
