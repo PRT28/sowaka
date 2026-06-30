@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.middleware';
 import { authRouter } from './auth.routes';
 import { companyRouter } from './company.routes';
 import { healthRouter } from './health.routes';
@@ -7,8 +8,11 @@ import { userRouter } from './user.routes';
 
 export const router = Router();
 
+// Public
 router.use('/auth', authRouter);
 router.use('/health', healthRouter);
-router.use('/users', userRouter);
-router.use('/leaves', leaveRouter);
-router.use('/companies', companyRouter);
+
+// Protected
+router.use('/users', requireAuth, userRouter);
+router.use('/leaves', requireAuth, leaveRouter);
+router.use('/companies', requireAuth, companyRouter);
