@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../config/env';
-import { otpChallenges, users } from '../config/db';
+import { authSessions, otpChallenges, users } from '../config/db';
 import { AuthUser } from '../models/auth.model';
 import { User } from '../models/user.model';
 import { generateOtp, hashOtp, isValidEmail } from '../utils/otp.util';
@@ -15,6 +15,7 @@ export async function requestLoginOtp(emailInput: string): Promise<void> {
   if (!isValidEmail(email)) {
     throw new AuthError(400, 'Please enter a valid work email');
   }
+  await requireEligibleUser(email);
 
   const otp = generateOtp();
   const now = Date.now();
@@ -46,6 +47,8 @@ export async function verifyLoginOtp(
     throw new AuthError(400, 'Invalid email or code');
   }
 
+  const existingUser = await requireEligibleUser(email);
+
   const challenge = await otpChallenges().findOne({ email });
   if (!challenge) {
     throw new AuthError(400, 'Code expired or not requested');
@@ -73,40 +76,54 @@ export async function verifyLoginOtp(
 
   await otpChallenges().deleteOne({ email });
 
-  const user = await upsertUser(email);
+  const user = await completeLogin(existingUser);
   const token = crypto.randomBytes(32).toString('hex');
+  await authSessions().insertOne({
+    tokenHash: hashSessionToken(token),
+    userId: user.id,
+    createdAt: new Date(),
+    expiresAt: new Date(Date.now() + env.authSessionTtlDays * 24 * 60 * 60 * 1000),
+  });
   return { token, user };
+}
+
+export async function revokeSession(token: string): Promise<void> {
+  if (token) {
+    await authSessions().deleteOne({ tokenHash: hashSessionToken(token) });
+  }
+}
+
+export function hashSessionToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/**
- * Bootstrap (or refresh) the master user record on login. HR enriches the rest
- * of the profile later; here we only set identity fields and login metadata.
- */
-async function upsertUser(email: string): Promise<AuthUser> {
-  const userId = deriveUserId(email);
-  const name = deriveName(email);
+async function requireEligibleUser(email: string): Promise<User> {
+  const user = await users().findOne({ email });
+  if (!user) {
+    throw new AuthError(403, 'This email is not registered. Contact HR for access');
+  }
+  if (user.lifecycleStatus === 'offboarded' || user.lifecycleStatus === 'terminated') {
+    throw new AuthError(403, 'This employee account is not active');
+  }
+  return user;
+}
 
-  const doc = await users().findOneAndUpdate(
-    { email },
-    {
-      $set: { userId, email, name },
-      $setOnInsert: {
-        lifecycleStatus: 'active',
-        onboardingStatus: 'pending',
-        role: 'manager',
-        org: defaultCompany,
-        createdAt: Date.now(),
-      },
-      $currentDate: { lastLoginAt: true },
-    },
-    { upsert: true, returnDocument: 'after' },
+async function completeLogin(user: User): Promise<AuthUser> {
+  const role = (await users().countDocuments({ managerUserId: user.userId }, { limit: 1 }))
+    ? 'manager'
+    : 'employee';
+
+  const now = new Date();
+  await users().updateOne(
+    { userId: user.userId },
+    { $set: { role, lastLoginAt: now, updatedAt: now } },
   );
 
-  return toAuthUser(doc ?? { userId, email, name, lifecycleStatus: 'active' });
+  return toAuthUser({ ...user, role });
 }
 
 function toAuthUser(user: User): AuthUser {
@@ -114,23 +131,9 @@ function toAuthUser(user: User): AuthUser {
     id: user.userId,
     email: user.email,
     name: user.name,
-    role: user.role ?? 'manager',
+    role: user.role ?? 'employee',
     company: user.org ?? defaultCompany,
   };
-}
-
-function deriveUserId(email: string): string {
-  return crypto.createHash('sha1').update(email).digest('hex').slice(0, 12);
-}
-
-function deriveName(email: string): string {
-  const local = email.split('@')[0] || 'user';
-  const name = local
-    .split(/[._-]/)
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(' ');
-  return name || 'Manager';
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {

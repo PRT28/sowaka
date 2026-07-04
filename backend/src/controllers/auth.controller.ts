@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from 'express';
-import { AuthError, requestLoginOtp, verifyLoginOtp } from '../services/auth.service';
+import { requestLoginOtp, revokeSession, verifyLoginOtp } from '../services/auth.service';
 
 export async function requestOtp(req: Request, res: Response, next: NextFunction) {
   try {
@@ -10,7 +10,16 @@ export async function requestOtp(req: Request, res: Response, next: NextFunction
       message: 'If the email is valid, a sign-in code has been sent.',
     });
   } catch (error) {
-    handleAuthError(error, res, next);
+    next(error);
+  }
+}
+
+export async function logout(req: Request, res: Response, next: NextFunction) {
+  try {
+    await revokeSession(req.auth?.token ?? '');
+    res.status(204).send();
+  } catch (error) {
+    next(error);
   }
 }
 
@@ -21,14 +30,6 @@ export async function verifyOtp(req: Request, res: Response, next: NextFunction)
     const result = await verifyLoginOtp(email, otp);
     res.status(200).json({ success: true, ...result });
   } catch (error) {
-    handleAuthError(error, res, next);
+    next(error);
   }
-}
-
-function handleAuthError(error: unknown, res: Response, next: NextFunction) {
-  if (error instanceof AuthError) {
-    res.status(error.statusCode).json({ success: false, message: error.message });
-    return;
-  }
-  next(error);
 }

@@ -1,0 +1,155 @@
+import { ObjectId } from 'mongodb';
+import { overtimeRequests, users } from '../config/db';
+import { OvertimeRequest, OvertimeStatus } from '../models/overtime.model';
+import { User } from '../models/user.model';
+
+const decisions = new Set<OvertimeStatus>(['approved', 'declined']);
+
+export async function createOvertimeRequest(
+  userId: string,
+  input: { workDate: string; duration: string; project: string; note?: string },
+) {
+  const employee = await requireEmployeeWithManager(userId);
+  const workDate = parseDateOnly(input.workDate, 'workDate');
+  if (workDate > startOfUtcDay(new Date())) {
+    throw new OvertimeError(400, 'Overtime cannot be submitted for a future date');
+  }
+  const duration = input.duration.trim().toLowerCase() as OvertimeRequest['duration'];
+  if (duration !== 'half_day' && duration !== 'full_day') {
+    throw new OvertimeError(400, 'Duration must be half_day or full_day');
+  }
+  const project = input.project.trim();
+  if (project.length < 2 || project.length > 120) {
+    throw new OvertimeError(400, 'Project must be between 2 and 120 characters');
+  }
+  const note = input.note?.trim();
+  if (note && note.length > 500) throw new OvertimeError(400, 'Note is too long');
+  const duplicate = await overtimeRequests().findOne({
+    userId,
+    workDate,
+    status: { $in: ['pending', 'approved'] },
+  });
+  if (duplicate) throw new OvertimeError(409, 'Overtime is already recorded for this date');
+
+  const now = new Date();
+  const request: OvertimeRequest = {
+    userId,
+    managerUserId: employee.managerUserId!,
+    workDate,
+    duration,
+    hours: duration === 'full_day' ? 8 : 4,
+    project,
+    note,
+    status: 'pending',
+    createdAt: now,
+    updatedAt: now,
+  };
+  const result = await overtimeRequests().insertOne(request);
+  return toView({ ...request, _id: result.insertedId }, employee);
+}
+
+export async function getMyOvertimeRequests(userId: string) {
+  const employee = await users().findOne({ userId });
+  if (!employee) throw new OvertimeError(404, 'Employee not found');
+  const requests = await overtimeRequests().find({ userId }).sort({ createdAt: -1 }).toArray();
+  return requests.map((request) => toView(request, employee));
+}
+
+export async function getManagerOvertimeInbox(managerUserId: string) {
+  const requests = await overtimeRequests()
+    .find({ managerUserId })
+    .sort({ status: -1, createdAt: -1 })
+    .toArray();
+  const employeeIds = [...new Set(requests.map((request) => request.userId))];
+  const employees = await users().find({ userId: { $in: employeeIds } }).toArray();
+  const employeeById = new Map(employees.map((employee) => [employee.userId, employee]));
+  return requests.flatMap((request) => {
+    const employee = employeeById.get(request.userId);
+    return employee ? [toView(request, employee)] : [];
+  });
+}
+
+export async function decideOvertime(
+  managerUserId: string,
+  requestIdInput: string,
+  decisionInput: string,
+) {
+  if (!ObjectId.isValid(requestIdInput)) throw new OvertimeError(400, 'Invalid overtime ID');
+  const decision = decisionInput.trim().toLowerCase() as OvertimeStatus;
+  if (!decisions.has(decision)) {
+    throw new OvertimeError(400, 'Decision must be approved or declined');
+  }
+  const requestId = new ObjectId(requestIdInput);
+  const request = await overtimeRequests().findOne({ _id: requestId });
+  if (!request) throw new OvertimeError(404, 'Overtime request not found');
+  if (request.managerUserId !== managerUserId) {
+    throw new OvertimeError(403, 'Only the assigned manager can decide this overtime request');
+  }
+  if (request.status !== 'pending') {
+    throw new OvertimeError(409, 'Overtime request has already been decided');
+  }
+  const employee = await users().findOne({ userId: request.userId });
+  if (!employee) throw new OvertimeError(409, 'Overtime request has an invalid employee');
+  const now = new Date();
+  const updated = await overtimeRequests().findOneAndUpdate(
+    { _id: requestId, status: 'pending' },
+    { $set: { status: decision, decidedByUserId: managerUserId, decidedAt: now, updatedAt: now } },
+    { returnDocument: 'after' },
+  );
+  if (!updated) throw new OvertimeError(409, 'Overtime request has already been decided');
+  return toView(updated, employee);
+}
+
+function toView(request: OvertimeRequest & { _id: ObjectId }, employee: User) {
+  return {
+    id: request._id.toHexString(),
+    userId: request.userId,
+    employee: {
+      name: employee.name,
+      department: employee.department ?? employee.designation ?? 'Team',
+    },
+    workDate: request.workDate.toISOString().slice(0, 10),
+    duration: request.duration,
+    hours: request.hours,
+    project: request.project,
+    note: request.note,
+    status: request.status,
+    createdAt: request.createdAt.toISOString(),
+    decidedAt: request.decidedAt?.toISOString(),
+  };
+}
+
+async function requireEmployeeWithManager(userId: string) {
+  const employee = await users().findOne({ userId });
+  if (!employee) throw new OvertimeError(404, 'Employee not found');
+  if (!employee.managerUserId) {
+    throw new OvertimeError(409, 'A manager must be assigned before applying for overtime');
+  }
+  const manager = await users().findOne({ userId: employee.managerUserId });
+  if (!manager || ['offboarded', 'terminated'].includes(manager.lifecycleStatus)) {
+    throw new OvertimeError(409, 'The assigned manager is not active');
+  }
+  return employee;
+}
+
+function parseDateOnly(value: string, field: string): Date {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new OvertimeError(400, `${field} must use YYYY-MM-DD format`);
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw new OvertimeError(400, `${field} is not a valid date`);
+  }
+  return date;
+}
+
+function startOfUtcDay(date: Date) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+export class OvertimeError extends Error {
+  constructor(public readonly statusCode: number, message: string) {
+    super(message);
+  }
+}
+

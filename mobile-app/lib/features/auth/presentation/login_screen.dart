@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../routes/app_routes.dart';
 import '../bloc/auth_bloc.dart';
+import '../data/auth_session_store.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -159,9 +160,17 @@ class _LoginScreenState extends State<LoginScreen>
                   floatController: _floatController,
                   name: state.session?.user.name ?? 'there',
                   company: state.session?.user.company ?? 'Sowaka',
-                  onEnter: () => Navigator.of(
-                    context,
-                  ).pushReplacementNamed(AppRoutes.home),
+                  onEnter: () async {
+                    final session = state.session;
+                    if (session == null) return;
+                    await AuthSessionStore().save(session);
+                    if (!context.mounted) return;
+                    Navigator.of(context).pushNamedAndRemoveUntil(
+                      AppRoutes.home,
+                      (_) => false,
+                      arguments: session,
+                    );
+                  },
                 ),
               },
             );
@@ -195,8 +204,6 @@ class _EmailStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _StatusBar(),
-          const SizedBox(height: 26),
           const _BrandRow(),
           const SizedBox(height: 42),
           _PeopleCluster(controller: floatController),
@@ -277,8 +284,6 @@ class _CodeStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _StatusBar(),
-          const SizedBox(height: 26),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -423,7 +428,6 @@ class _SuccessStep extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const _StatusBar(),
           const Spacer(),
           _SuccessMark(controller: floatController),
           const SizedBox(height: 14),
@@ -470,102 +474,14 @@ class _PhoneCanvas extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      alignment: Alignment.topCenter,
-      children: [
-        Padding(
-          padding: EdgeInsets.fromLTRB(
-            horizontalPadding,
-            16,
-            horizontalPadding,
-            30,
-          ),
-          child: child,
-        ),
-        Container(
-          margin: const EdgeInsets.only(top: 13),
-          width: 116,
-          height: 34,
-          decoration: BoxDecoration(
-            color: Colors.black,
-            borderRadius: BorderRadius.circular(20),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusBar extends StatelessWidget {
-  const _StatusBar();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(
-            '9:41',
-            style: TextStyle(
-              color: _CxColors.ink,
-              fontSize: 15,
-              letterSpacing: -0.3,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          Row(children: [_SignalBars(), SizedBox(width: 7), _BatteryIcon()]),
-        ],
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        20,
+        horizontalPadding,
+        30,
       ),
-    );
-  }
-}
-
-class _SignalBars extends StatelessWidget {
-  const _SignalBars();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(4, (index) {
-        return Container(
-          width: 3,
-          height: 5 + (index * 2),
-          margin: EdgeInsets.only(left: index == 0 ? 0 : 2),
-          decoration: BoxDecoration(
-            color: _CxColors.ink,
-            borderRadius: BorderRadius.circular(1),
-          ),
-        );
-      }),
-    );
-  }
-}
-
-class _BatteryIcon extends StatelessWidget {
-  const _BatteryIcon();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 24,
-      height: 12,
-      padding: const EdgeInsets.all(1.5),
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: _CxColors.ink.withValues(alpha: 0.5),
-          width: 1.5,
-        ),
-        borderRadius: BorderRadius.circular(3),
-      ),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: _CxColors.ink,
-          borderRadius: BorderRadius.circular(1),
-        ),
-      ),
+      child: child,
     );
   }
 }

@@ -1,4 +1,4 @@
-enum ManagerTab { manage, grow, games, attendance }
+enum ManagerTab { manage, grow, connect, quick }
 
 enum ManagerView { home, feedbackList, feedbackRecord }
 
@@ -29,6 +29,7 @@ class FeedbackParam {
 class TeamMember {
   const TeamMember({
     required this.id,
+    required this.userId,
     required this.name,
     required this.initial,
     required this.team,
@@ -42,6 +43,7 @@ class TeamMember {
   });
 
   final int id;
+  final String userId;
   final String name;
   final String initial;
   final String team;
@@ -53,6 +55,38 @@ class TeamMember {
   final List<FeedbackParam> params;
   final String extra;
 
+  factory TeamMember.fromJson(Map<String, dynamic> json, int id) {
+    final name = json['name'] as String? ?? 'Employee';
+    final values = json['parameters'] as List<dynamic>? ?? const [];
+    return TeamMember(
+      id: id,
+      userId: json['userId'] as String? ?? '',
+      name: name,
+      initial: name.isEmpty ? '?' : name[0].toUpperCase(),
+      team: json['department'] as String? ?? 'Team',
+      score: (json['score'] as num?)?.toDouble() ?? 0,
+      next:
+          DateTime.tryParse(json['nextDate'] as String? ?? '') ??
+          DateTime.now(),
+      status: switch (json['feedbackStatus']) {
+        'saved' => FeedbackStatus.saved,
+        'sent' => FeedbackStatus.sent,
+        _ => FeedbackStatus.pending,
+      },
+      missedMonths: (json['missedMonths'] as num?)?.toInt() ?? 0,
+      avatarIndex: (id - 1) % 7,
+      params: values.map((value) {
+        final param = value as Map<String, dynamic>;
+        return FeedbackParam(
+          name: param['name'] as String? ?? '',
+          score: (param['score'] as num?)?.toDouble() ?? 0,
+          note: param['note'] as String? ?? '',
+        );
+      }).toList(),
+      extra: json['extra'] as String? ?? '',
+    );
+  }
+
   TeamMember copyWith({
     double? score,
     FeedbackStatus? status,
@@ -61,6 +95,7 @@ class TeamMember {
   }) {
     return TeamMember(
       id: id,
+      userId: userId,
       name: name,
       initial: initial,
       team: team,
@@ -71,6 +106,48 @@ class TeamMember {
       avatarIndex: avatarIndex,
       params: params ?? this.params,
       extra: extra ?? this.extra,
+    );
+  }
+}
+
+class LeaveBalanceItem {
+  const LeaveBalanceItem({required this.remaining, required this.total});
+  final int remaining;
+  final int total;
+
+  factory LeaveBalanceItem.fromJson(Map<String, dynamic> json) {
+    return LeaveBalanceItem(
+      remaining: (json['remaining'] as num?)?.toInt() ?? 0,
+      total: (json['total'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class LeaveBalance {
+  const LeaveBalance({
+    required this.year,
+    required this.sick,
+    required this.casual,
+    required this.earned,
+  });
+
+  final int year;
+  final LeaveBalanceItem sick;
+  final LeaveBalanceItem casual;
+  final LeaveBalanceItem earned;
+
+  factory LeaveBalance.fromJson(Map<String, dynamic> json) {
+    return LeaveBalance(
+      year: (json['year'] as num?)?.toInt() ?? DateTime.now().year,
+      sick: LeaveBalanceItem.fromJson(
+        json['sick'] as Map<String, dynamic>? ?? const {},
+      ),
+      casual: LeaveBalanceItem.fromJson(
+        json['casual'] as Map<String, dynamic>? ?? const {},
+      ),
+      earned: LeaveBalanceItem.fromJson(
+        json['earned'] as Map<String, dynamic>? ?? const {},
+      ),
     );
   }
 }
@@ -101,6 +178,33 @@ class LeaveRequest {
   final String reason;
   final DateTime requestedOn;
   final LeaveDecision decision;
+
+  factory LeaveRequest.fromJson(Map<String, dynamic> json) {
+    final employee = json['employee'] as Map<String, dynamic>? ?? const {};
+    final name = employee['name'] as String? ?? 'Employee';
+    final typeValue = json['type'] as String? ?? 'casual';
+    final start = DateTime.parse(json['startDate'] as String);
+    final end = DateTime.parse(json['endDate'] as String);
+    return LeaveRequest(
+      id: json['id'] as String? ?? '',
+      who: name,
+      initial: name.isEmpty ? '?' : name[0].toUpperCase(),
+      avatarIndex: name.hashCode.abs() % 7,
+      type: '${typeValue[0].toUpperCase()}${typeValue.substring(1)}',
+      start: start,
+      end: end,
+      days: json['days'] as int? ?? end.difference(start).inDays + 1,
+      reason: json['reason'] as String? ?? '',
+      requestedOn:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      decision: switch (json['status']) {
+        'approved' => LeaveDecision.approved,
+        'declined' => LeaveDecision.declined,
+        _ => LeaveDecision.pending,
+      },
+    );
+  }
 
   LeaveRequest copyWith({LeaveDecision? decision}) {
     return LeaveRequest(
@@ -145,41 +249,178 @@ class AwardNomination {
   }
 }
 
+class OvertimeRequest {
+  const OvertimeRequest({
+    required this.id,
+    required this.who,
+    required this.initial,
+    required this.avatarIndex,
+    required this.team,
+    required this.workDate,
+    required this.duration,
+    required this.hours,
+    required this.project,
+    required this.note,
+    required this.requestedOn,
+    required this.decision,
+  });
+
+  final String id;
+  final String who;
+  final String initial;
+  final int avatarIndex;
+  final String team;
+  final DateTime workDate;
+  final String duration;
+  final double hours;
+  final String project;
+  final String note;
+  final DateTime requestedOn;
+  final LeaveDecision decision;
+
+  factory OvertimeRequest.fromJson(Map<String, dynamic> json) {
+    final employee = json['employee'] as Map<String, dynamic>? ?? const {};
+    final name = employee['name'] as String? ?? 'Employee';
+    return OvertimeRequest(
+      id: json['id'] as String? ?? '',
+      who: name,
+      initial: name.isEmpty ? '?' : name[0].toUpperCase(),
+      avatarIndex: name.hashCode.abs() % 7,
+      team: employee['department'] as String? ?? 'Team',
+      workDate: DateTime.parse(json['workDate'] as String),
+      duration: json['duration'] == 'full_day' ? 'Full day' : 'Half day',
+      hours: (json['hours'] as num?)?.toDouble() ?? 0,
+      project: json['project'] as String? ?? '',
+      note: json['note'] as String? ?? '',
+      requestedOn:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+      decision: switch (json['status']) {
+        'approved' => LeaveDecision.approved,
+        'declined' => LeaveDecision.declined,
+        _ => LeaveDecision.pending,
+      },
+    );
+  }
+
+  OvertimeRequest copyWith({LeaveDecision? decision}) {
+    return OvertimeRequest(
+      id: id,
+      who: who,
+      initial: initial,
+      avatarIndex: avatarIndex,
+      team: team,
+      workDate: workDate,
+      duration: duration,
+      hours: hours,
+      project: project,
+      note: note,
+      requestedOn: requestedOn,
+      decision: decision ?? this.decision,
+    );
+  }
+}
+
+class ReimbursementClaim {
+  const ReimbursementClaim({
+    required this.id,
+    required this.category,
+    required this.amount,
+    required this.expenseDate,
+    required this.note,
+    required this.status,
+  });
+
+  final String id;
+  final String category;
+  final double amount;
+  final DateTime expenseDate;
+  final String note;
+  final String status;
+
+  factory ReimbursementClaim.fromJson(Map<String, dynamic> json) {
+    final category = json['category'] as String? ?? 'other';
+    return ReimbursementClaim(
+      id: json['id'] as String? ?? '',
+      category: category.isEmpty
+          ? 'Other'
+          : '${category[0].toUpperCase()}${category.substring(1)}',
+      amount: (json['amount'] as num?)?.toDouble() ?? 0,
+      expenseDate: DateTime.parse(json['expenseDate'] as String),
+      note: json['note'] as String? ?? '',
+      status: switch (json['status']) {
+        'approved' => 'Approved',
+        'declined' => 'Declined',
+        'paid' => 'Paid',
+        _ => 'Pending',
+      },
+    );
+  }
+}
+
 class ManagerDashboard {
   const ManagerDashboard({
     required this.managerName,
     required this.managerInitial,
     required this.managerTeam,
+    required this.approverName,
     required this.managerScore,
     required this.today,
     required this.team,
+    required this.recognitionCandidates,
     required this.leaves,
+    required this.myLeaves,
     required this.awards,
+    required this.leaveBalance,
+    required this.overtime,
+    required this.myOvertime,
+    required this.myReimbursements,
   });
 
   final String managerName;
   final String managerInitial;
   final String managerTeam;
+  final String approverName;
   final double managerScore;
   final DateTime today;
   final List<TeamMember> team;
+  final List<TeamMember> recognitionCandidates;
   final List<LeaveRequest> leaves;
+  final List<LeaveRequest> myLeaves;
   final List<AwardNomination> awards;
+  final LeaveBalance leaveBalance;
+  final List<OvertimeRequest> overtime;
+  final List<OvertimeRequest> myOvertime;
+  final List<ReimbursementClaim> myReimbursements;
 
   ManagerDashboard copyWith({
     List<TeamMember>? team,
+    List<TeamMember>? recognitionCandidates,
     List<LeaveRequest>? leaves,
+    List<LeaveRequest>? myLeaves,
     List<AwardNomination>? awards,
+    LeaveBalance? leaveBalance,
+    List<OvertimeRequest>? overtime,
+    List<OvertimeRequest>? myOvertime,
+    List<ReimbursementClaim>? myReimbursements,
   }) {
     return ManagerDashboard(
       managerName: managerName,
       managerInitial: managerInitial,
       managerTeam: managerTeam,
+      approverName: approverName,
       managerScore: managerScore,
       today: today,
       team: team ?? this.team,
+      recognitionCandidates:
+          recognitionCandidates ?? this.recognitionCandidates,
       leaves: leaves ?? this.leaves,
+      myLeaves: myLeaves ?? this.myLeaves,
       awards: awards ?? this.awards,
+      leaveBalance: leaveBalance ?? this.leaveBalance,
+      overtime: overtime ?? this.overtime,
+      myOvertime: myOvertime ?? this.myOvertime,
+      myReimbursements: myReimbursements ?? this.myReimbursements,
     );
   }
 }

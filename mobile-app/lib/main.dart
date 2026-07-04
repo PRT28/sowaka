@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'features/auth/presentation/auth_gate.dart';
 import 'routes/app_routes.dart';
 
 void main() {
@@ -40,7 +41,7 @@ class HrmsMobileApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      initialRoute: AppRoutes.login,
+      home: const AuthGate(),
       routes: AppRoutes.routes,
     );
   }

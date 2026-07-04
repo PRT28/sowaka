@@ -8,10 +8,14 @@ if (!globalThis.crypto) {
 
 import { Collection, Db, MongoClient } from 'mongodb';
 import { env } from './env';
-import { OtpChallenge } from '../models/auth.model';
+import { AuthSessionDocument, OtpChallenge } from '../models/auth.model';
 import { User } from '../models/user.model';
 import { Leave } from '../models/leave.model';
 import { Company } from '../models/company.model';
+import { FeedbackRecord } from '../models/feedback.model';
+import { RecognitionNomination } from '../models/recognition.model';
+import { OvertimeRequest } from '../models/overtime.model';
+import { ReimbursementClaim } from '../models/reimbursement.model';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -40,6 +44,10 @@ export function otpChallenges(): Collection<OtpChallenge> {
   return getDb().collection<OtpChallenge>('otp_challenges');
 }
 
+export function authSessions(): Collection<AuthSessionDocument> {
+  return getDb().collection<AuthSessionDocument>('auth_sessions');
+}
+
 export function users(): Collection<User> {
   return getDb().collection<User>('users');
 }
@@ -52,10 +60,31 @@ export function companies(): Collection<Company> {
   return getDb().collection<Company>('companies');
 }
 
+export function feedbackRecords(): Collection<FeedbackRecord> {
+  return getDb().collection<FeedbackRecord>('feedback_records');
+}
+
+export function recognitionNominations(): Collection<RecognitionNomination> {
+  return getDb().collection<RecognitionNomination>('recognition_nominations');
+}
+
+export function overtimeRequests(): Collection<OvertimeRequest> {
+  return getDb().collection<OvertimeRequest>('overtime_requests');
+}
+
+export function reimbursementClaims(): Collection<ReimbursementClaim> {
+  return getDb().collection<ReimbursementClaim>('reimbursement_claims');
+}
+
 async function ensureIndexes(database: Db): Promise<void> {
   await database
     .collection<OtpChallenge>('otp_challenges')
     .createIndex({ email: 1 }, { unique: true });
+
+  const sessionsCollection = database.collection<AuthSessionDocument>('auth_sessions');
+  await sessionsCollection.createIndex({ tokenHash: 1 }, { unique: true });
+  await sessionsCollection.createIndex({ userId: 1 });
+  await sessionsCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
   const usersCollection = database.collection<User>('users');
   // Legacy index from the earlier auth-only schema (keyed on `id`); replaced by `userId`.
@@ -71,6 +100,30 @@ async function ensureIndexes(database: Db): Promise<void> {
   await leavesCollection.createIndex({ userId: 1 });
   await leavesCollection.createIndex({ status: 1 });
   await leavesCollection.createIndex({ userId: 1, startDate: -1 });
+  await leavesCollection.createIndex({ userId: 1, status: 1, startDate: 1, endDate: 1 });
+
+  const feedbackCollection = database.collection<FeedbackRecord>('feedback_records');
+  await feedbackCollection.createIndex(
+    { managerUserId: 1, employeeUserId: 1, period: 1 },
+    { unique: true },
+  );
+  await feedbackCollection.createIndex({ employeeUserId: 1, period: -1 });
+
+  const nominationsCollection =
+    database.collection<RecognitionNomination>('recognition_nominations');
+  await nominationsCollection.createIndex(
+    { managerUserId: 1, period: 1, category: 1 },
+    { unique: true },
+  );
+
+  const overtimeCollection = database.collection<OvertimeRequest>('overtime_requests');
+  await overtimeCollection.createIndex({ userId: 1, createdAt: -1 });
+  await overtimeCollection.createIndex({ managerUserId: 1, status: 1, createdAt: -1 });
+
+  const reimbursementCollection =
+    database.collection<ReimbursementClaim>('reimbursement_claims');
+  await reimbursementCollection.createIndex({ userId: 1, createdAt: -1 });
+  await reimbursementCollection.createIndex({ managerUserId: 1, status: 1, createdAt: -1 });
 
   await database.collection<Company>('companies').createIndex({ id: 1 }, { unique: true });
 }

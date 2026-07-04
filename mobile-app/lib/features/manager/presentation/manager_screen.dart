@@ -2,11 +2,17 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../routes/app_routes.dart';
+import '../../auth/data/auth_models.dart';
+import '../../auth/data/auth_session_store.dart';
 import '../bloc/manager_bloc.dart';
 import '../data/manager_models.dart';
+import 'quick_actions_screen.dart';
 
 class ManagerScreen extends StatefulWidget {
-  const ManagerScreen({super.key});
+  const ManagerScreen({super.key, required this.session});
+
+  final AuthSession session;
 
   @override
   State<ManagerScreen> createState() => _ManagerScreenState();
@@ -14,17 +20,83 @@ class ManagerScreen extends StatefulWidget {
 
 class _ManagerScreenState extends State<ManagerScreen> {
   late final ManagerBloc _bloc;
+  late final QuickActionsController _quickActionsController;
 
   @override
   void initState() {
     super.initState();
-    _bloc = ManagerBloc()..add(const LoadManagerDashboard());
+    _quickActionsController = QuickActionsController()
+      ..addListener(_refreshBackState);
+    _bloc = ManagerBloc(session: widget.session)
+      ..add(const LoadManagerDashboard());
   }
 
   @override
   void dispose() {
+    _quickActionsController
+      ..removeListener(_refreshBackState)
+      ..dispose();
     _bloc.dispose();
     super.dispose();
+  }
+
+  void _refreshBackState() {
+    if (mounted) setState(() {});
+  }
+
+  ManagerTab get _defaultTab => widget.session.user.role == 'manager'
+      ? ManagerTab.manage
+      : ManagerTab.grow;
+
+  bool _hasBackTarget(ManagerState state) {
+    return state.awardPickerKey != null ||
+        state.applyLeaveOpen ||
+        state.view != ManagerView.home ||
+        (state.tab == ManagerTab.quick && _quickActionsController.canGoBack) ||
+        state.tab != _defaultTab;
+  }
+
+  void _handleBack(ManagerState state) {
+    if (state.awardPickerKey != null) {
+      _bloc.add(const CloseAwardPicker());
+    } else if (state.applyLeaveOpen) {
+      _bloc.add(const CloseApplyLeave());
+    } else if (state.view == ManagerView.feedbackRecord) {
+      _bloc.add(const CloseFeedbackRecord());
+    } else if (state.view == ManagerView.feedbackList) {
+      _bloc.add(const CloseFeedbackList());
+    } else if (state.tab == ManagerTab.quick &&
+        _quickActionsController.canGoBack) {
+      _quickActionsController.handleBack();
+    } else if (state.tab != _defaultTab) {
+      _bloc.add(ChangeManagerTab(_defaultTab));
+    }
+  }
+
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You will need to sign in again to continue.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await AuthSessionStore().clear();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(AppRoutes.login, (_) => false);
   }
 
   @override
@@ -67,23 +139,34 @@ class _ManagerScreenState extends State<ManagerScreen> {
           );
         }
 
-        return Scaffold(
-          backgroundColor: MColors.bg,
-          body: Stack(
-            children: [
-              Column(
-                children: [
-                  Expanded(
-                    child: _TabContent(state: state, bloc: _bloc),
-                  ),
-                  _BottomTabs(state: state, bloc: _bloc),
-                ],
-              ),
-              if (state.awardPickerKey != null)
-                _AwardPicker(state: state, bloc: _bloc),
-              if (state.applyLeaveOpen)
-                _ApplyLeaveSheet(state: state, bloc: _bloc),
-            ],
+        return PopScope(
+          canPop: !_hasBackTarget(state),
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop) _handleBack(state);
+          },
+          child: Scaffold(
+            backgroundColor: MColors.bg,
+            body: Stack(
+              children: [
+                Column(
+                  children: [
+                    Expanded(
+                      child: _TabContent(
+                        state: state,
+                        bloc: _bloc,
+                        quickActionsController: _quickActionsController,
+                        onLogout: _logout,
+                      ),
+                    ),
+                    _BottomTabs(state: state, bloc: _bloc),
+                  ],
+                ),
+                if (state.awardPickerKey != null)
+                  _AwardPicker(state: state, bloc: _bloc),
+                if (state.applyLeaveOpen)
+                  _ApplyLeaveSheet(state: state, bloc: _bloc),
+              ],
+            ),
           ),
         );
       },
@@ -92,10 +175,17 @@ class _ManagerScreenState extends State<ManagerScreen> {
 }
 
 class _TabContent extends StatelessWidget {
-  const _TabContent({required this.state, required this.bloc});
+  const _TabContent({
+    required this.state,
+    required this.bloc,
+    required this.quickActionsController,
+    required this.onLogout,
+  });
 
   final ManagerState state;
   final ManagerBloc bloc;
+  final QuickActionsController quickActionsController;
+  final Future<void> Function() onLogout;
 
   @override
   Widget build(BuildContext context) {
@@ -104,14 +194,19 @@ class _TabContent extends StatelessWidget {
       child: switch (state.tab) {
         ManagerTab.manage => _ManageContent(state: state, bloc: bloc),
         ManagerTab.grow => _GrowTab(state: state),
-        ManagerTab.games => const _ComingSoonTab(
-          key: ValueKey('games'),
-          icon: Icons.sports_esports_outlined,
-          title: 'Games',
-          body:
-              'Streaks, points and friendly team challenges to make recognition fun.',
+        ManagerTab.connect => const _ComingSoonTab(
+          key: ValueKey('connect'),
+          icon: Icons.newspaper_rounded,
+          title: 'Connect',
+          body: 'Company feed, shout-outs and updates — coming soon.',
         ),
-        ManagerTab.attendance => _AttendanceTab(state: state, bloc: bloc),
+        ManagerTab.quick => QuickActionsScreen(
+          key: const ValueKey('quick-actions'),
+          bloc: bloc,
+          dashboard: state.dashboard!,
+          controller: quickActionsController,
+          onLogout: onLogout,
+        ),
       },
     );
   }
@@ -154,6 +249,9 @@ class _ManagerHome extends StatelessWidget {
         .where((leave) => leave.decision == LeaveDecision.pending)
         .length;
     final named = data.awards.where((award) => award.nomineeId != null).length;
+    final pendingOvertime = data.overtime
+        .where((request) => request.decision == LeaveDecision.pending)
+        .toList();
 
     return ListView(
       key: const ValueKey('manager-home'),
@@ -166,17 +264,17 @@ class _ManagerHome extends StatelessWidget {
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
+                  children: [
                     Text(
-                      'June · for you to action',
-                      style: TextStyle(
+                      '${_monthName(data.today.month)} · for you to action',
+                      style: const TextStyle(
                         color: MColors.inkSoft,
                         fontWeight: FontWeight.w700,
                         fontSize: 13.5,
                       ),
                     ),
-                    SizedBox(height: 2),
-                    Text(
+                    const SizedBox(height: 2),
+                    const Text(
                       'Your Team',
                       style: TextStyle(
                         color: MColors.ink,
@@ -218,7 +316,10 @@ class _ManagerHome extends StatelessWidget {
           trailing: '$given of ${data.team.length} given',
         ),
         const SizedBox(height: 10),
-        _ProgressBar(value: given / data.team.length, color: MColors.terra),
+        _ProgressBar(
+          value: data.team.isEmpty ? 0 : given / data.team.length,
+          color: MColors.terra,
+        ),
         const SizedBox(height: 14),
         PressableCard(
           onTap: () => bloc.add(const OpenFeedbackList()),
@@ -279,13 +380,32 @@ class _ManagerHome extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        _SectionTitle(title: 'Recognition', trailing: '$named of 4 named'),
+        _SectionTitle(
+          title: 'Overtime requests',
+          trailing: '${pendingOvertime.length} pending',
+        ),
+        const SizedBox(height: 12),
+        ...pendingOvertime.map(
+          (request) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _OvertimeRequestCard(
+              request: request,
+              onDecide: (decision) =>
+                  bloc.add(DecideOvertime(request.id, decision)),
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        _SectionTitle(
+          title: 'Recognition',
+          trailing: '$named of ${data.awards.length} named',
+        ),
         const SizedBox(height: 6),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Text(
-            'Nominate someone for June’s awards.',
-            style: TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+            'Nominate someone for ${_monthName(data.today.month)}’s awards.',
+            style: const TextStyle(color: MColors.inkSoft, fontSize: 13.5),
           ),
         ),
         const SizedBox(height: 13),
@@ -302,7 +422,7 @@ class _ManagerHome extends StatelessWidget {
           itemBuilder: (context, index) {
             return _AwardCard(
               award: data.awards[index],
-              team: data.team,
+              team: data.recognitionCandidates,
               onTap: () => bloc.add(OpenAwardPicker(data.awards[index].key)),
             );
           },
@@ -378,7 +498,7 @@ class _FeedbackList extends StatelessWidget {
       children: [
         _TopBar(
           title: 'Monthly Check-ins',
-          sub: 'June · for you to action',
+          sub: '${_monthName(data.today.month)} · for you to action',
           onBack: () => bloc.add(const CloseFeedbackList()),
         ),
         Expanded(
@@ -559,6 +679,78 @@ class _FeedbackList extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _OwnLeaveCard extends StatelessWidget {
+  const _OwnLeaveCard({required this.leave});
+
+  final LeaveRequest leave;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color, icon) = switch (leave.decision) {
+      LeaveDecision.approved => (
+        'Approved',
+        MColors.sageDeep,
+        Icons.check_circle_rounded,
+      ),
+      LeaveDecision.declined => (
+        'Declined',
+        MColors.live,
+        Icons.cancel_rounded,
+      ),
+      LeaveDecision.pending => (
+        'Pending',
+        MColors.gold,
+        Icons.schedule_rounded,
+      ),
+    };
+    return PressableCard(
+      padding: const EdgeInsets.all(15),
+      child: Row(
+        children: [
+          IconBox(
+            icon: Icons.beach_access_outlined,
+            color: leavePalette(leave.type).$1,
+            tint: leavePalette(leave.type).$2,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${leave.type} · ${leave.days} ${leave.days == 1 ? 'day' : 'days'}',
+                  style: const TextStyle(
+                    color: MColors.ink,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${shortDate(leave.start)}–${shortDate(leave.end)}',
+                  style: const TextStyle(
+                    color: MColors.inkSoft,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -907,6 +1099,8 @@ class _RecordFeedback extends StatelessWidget {
   }
 }
 
+// Kept as a reusable surface for a future standalone attendance route.
+// ignore: unused_element
 class _AttendanceTab extends StatelessWidget {
   const _AttendanceTab({required this.state, required this.bloc});
 
@@ -919,9 +1113,9 @@ class _AttendanceTab extends StatelessWidget {
       key: const ValueKey('attendance'),
       padding: const EdgeInsets.fromLTRB(20, 60, 20, 34),
       children: [
-        const Text(
-          'June',
-          style: TextStyle(
+        Text(
+          _monthName(state.dashboard!.today.month),
+          style: const TextStyle(
             color: MColors.inkSoft,
             fontSize: 13.5,
             fontWeight: FontWeight.w700,
@@ -979,6 +1173,29 @@ class _AttendanceTab extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 28),
+        _SectionTitle(
+          title: 'My leave requests',
+          trailing: state.dashboard!.myLeaves.isEmpty
+              ? 'None yet'
+              : '${state.dashboard!.myLeaves.length} total',
+        ),
+        const SizedBox(height: 12),
+        if (state.dashboard!.myLeaves.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              'Your submitted leave requests will appear here.',
+              style: TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+            ),
+          )
+        else
+          ...state.dashboard!.myLeaves.map(
+            (leave) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _OwnLeaveCard(leave: leave),
+            ),
+          ),
       ],
     );
   }
@@ -996,9 +1213,9 @@ class _GrowTab extends StatelessWidget {
       key: const ValueKey('grow'),
       padding: const EdgeInsets.fromLTRB(20, 60, 20, 34),
       children: [
-        const Text(
-          'June',
-          style: TextStyle(
+        Text(
+          _monthName(data.today.month),
+          style: const TextStyle(
             color: MColors.inkSoft,
             fontSize: 13.5,
             fontWeight: FontWeight.w700,
@@ -1125,12 +1342,14 @@ class _BottomTabs extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
         child: Row(
           children: [
-            _TabButton(
-              label: 'Manage',
-              icon: Icons.checklist_rounded,
-              selected: state.tab == ManagerTab.manage,
-              onTap: () => bloc.add(const ChangeManagerTab(ManagerTab.manage)),
-            ),
+            if (state.canManage)
+              _TabButton(
+                label: 'Manage',
+                icon: Icons.checklist_rounded,
+                selected: state.tab == ManagerTab.manage,
+                onTap: () =>
+                    bloc.add(const ChangeManagerTab(ManagerTab.manage)),
+              ),
             _TabButton(
               label: 'Grow',
               icon: Icons.show_chart_rounded,
@@ -1138,17 +1357,16 @@ class _BottomTabs extends StatelessWidget {
               onTap: () => bloc.add(const ChangeManagerTab(ManagerTab.grow)),
             ),
             _TabButton(
-              label: 'Games',
-              icon: Icons.sports_esports_outlined,
-              selected: state.tab == ManagerTab.games,
-              onTap: () => bloc.add(const ChangeManagerTab(ManagerTab.games)),
+              label: 'Connect',
+              icon: Icons.newspaper_rounded,
+              selected: state.tab == ManagerTab.connect,
+              onTap: () => bloc.add(const ChangeManagerTab(ManagerTab.connect)),
             ),
             _TabButton(
-              label: 'Attendance',
-              icon: Icons.calendar_today_outlined,
-              selected: state.tab == ManagerTab.attendance,
-              onTap: () =>
-                  bloc.add(const ChangeManagerTab(ManagerTab.attendance)),
+              label: 'Quick Actions',
+              icon: Icons.bolt_rounded,
+              selected: state.tab == ManagerTab.quick,
+              onTap: () => bloc.add(const ChangeManagerTab(ManagerTab.quick)),
             ),
           ],
         ),
@@ -1340,6 +1558,270 @@ class _LeaveCard extends StatelessWidget {
   }
 }
 
+class _OvertimeRequestCard extends StatelessWidget {
+  const _OvertimeRequestCard({required this.request, required this.onDecide});
+
+  final OvertimeRequest request;
+  final ValueChanged<LeaveDecision> onDecide;
+
+  void _decide(LeaveDecision decision) {
+    onDecide(decision);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableCard(
+      onTap: () => _showDetails(context),
+      padding: const EdgeInsets.all(15),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              AvatarBadge(
+                initial: request.initial,
+                index: request.avatarIndex,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.who,
+                      style: const TextStyle(
+                        color: MColors.ink,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${request.team} · ${_managerDate(request.workDate)}',
+                      style: const TextStyle(
+                        color: MColors.inkSoft,
+                        fontSize: 12.5,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
+                decoration: BoxDecoration(
+                  color: MColors.goldTint,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  request.duration,
+                  style: const TextStyle(
+                    color: MColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 11),
+          Text(
+            request.project,
+            style: const TextStyle(
+              color: MColors.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _requestedAgo(request.requestedOn),
+            style: const TextStyle(color: MColors.inkFaint, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          if (request.decision == LeaveDecision.pending)
+            Row(
+              children: [
+                Expanded(
+                  child: ActionButton(
+                    label: 'Decline',
+                    background: Colors.white,
+                    foreground: MColors.ink,
+                    border: MColors.line,
+                    onTap: () => _decide(LeaveDecision.declined),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ActionButton(
+                    label: 'Approve',
+                    background: MColors.terra,
+                    foreground: Colors.white,
+                    onTap: () => _decide(LeaveDecision.approved),
+                  ),
+                ),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Icon(
+                  request.decision == LeaveDecision.approved
+                      ? Icons.check_circle_rounded
+                      : Icons.cancel_rounded,
+                  color: request.decision == LeaveDecision.approved
+                      ? MColors.sageDeep
+                      : MColors.live,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  request.decision == LeaveDecision.approved
+                      ? 'Approved'
+                      : 'Declined',
+                  style: const TextStyle(
+                    color: MColors.inkSoft,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showDetails(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: MColors.line,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const Text(
+                'Overtime request',
+                style: TextStyle(
+                  color: MColors.ink,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${request.who} · ${request.team}',
+                style: const TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+              ),
+              const SizedBox(height: 20),
+              _OvertimeDetailRow(
+                label: 'DATE',
+                value: _managerDate(request.workDate),
+              ),
+              _OvertimeDetailRow(label: 'DURATION', value: request.duration),
+              _OvertimeDetailRow(label: 'PROJECT', value: request.project),
+              const SizedBox(height: 8),
+              if (request.decision == LeaveDecision.pending)
+                Row(
+                  children: [
+                    Expanded(
+                      child: ActionButton(
+                        label: 'Decline',
+                        background: Colors.white,
+                        foreground: MColors.ink,
+                        border: MColors.line,
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _decide(LeaveDecision.declined);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ActionButton(
+                        label: 'Approve',
+                        background: MColors.terra,
+                        foreground: Colors.white,
+                        onTap: () {
+                          Navigator.pop(sheetContext);
+                          _decide(LeaveDecision.approved);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _OvertimeDetailRow extends StatelessWidget {
+  const _OvertimeDetailRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: MColors.bg,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Row(
+      children: [
+        SizedBox(
+          width: 82,
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: MColors.inkFaint,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .7,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: MColors.ink,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _AwardCard extends StatelessWidget {
   const _AwardCard({
     required this.award,
@@ -1460,11 +1942,11 @@ class _AwardPicker extends StatelessWidget {
                       constraints: const BoxConstraints(maxHeight: 360),
                       child: ListView.separated(
                         shrinkWrap: true,
-                        itemCount: data.team.length,
+                        itemCount: data.recognitionCandidates.length,
                         separatorBuilder: (context, index) =>
                             const Divider(height: 1, color: MColors.line),
                         itemBuilder: (context, index) {
-                          final member = data.team[index];
+                          final member = data.recognitionCandidates[index];
                           return ListTile(
                             contentPadding: EdgeInsets.zero,
                             leading: AvatarBadge(
@@ -1510,6 +1992,59 @@ class _ApplyLeaveSheet extends StatefulWidget {
 
 class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
   String _type = 'Casual';
+  late DateTime _startDate;
+  late DateTime _endDate;
+  final TextEditingController _reasonController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, now.day);
+    _endDate = _startDate;
+  }
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectDate({required bool start}) async {
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: start ? _startDate : _endDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      if (start) {
+        _startDate = selected;
+        if (_endDate.isBefore(selected)) _endDate = selected;
+      } else {
+        _endDate = selected;
+      }
+    });
+  }
+
+  void _submit() {
+    final reason = _reasonController.text.trim();
+    if (reason.length < 3) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a reason for leave')),
+      );
+      return;
+    }
+    widget.bloc.add(
+      SubmitLeaveApplication(
+        type: _type,
+        startDate: _startDate,
+        endDate: _endDate,
+        reason: reason,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1611,19 +2146,33 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
                           ),
                           const SizedBox(height: 14),
                           TextFormField(
+                            key: ValueKey(
+                              'leave-start-${_startDate.toIso8601String()}',
+                            ),
                             readOnly: true,
-                            initialValue: 'Jul 1, 2026',
+                            initialValue: MaterialLocalizations.of(
+                              context,
+                            ).formatMediumDate(_startDate),
+                            onTap: () => _selectDate(start: true),
                             decoration: _fieldDecoration('Start date'),
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
+                            key: ValueKey(
+                              'leave-end-${_endDate.toIso8601String()}',
+                            ),
                             readOnly: true,
-                            initialValue: 'Jul 3, 2026',
+                            initialValue: MaterialLocalizations.of(
+                              context,
+                            ).formatMediumDate(_endDate),
+                            onTap: () => _selectDate(start: false),
                             decoration: _fieldDecoration('End date'),
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
+                            controller: _reasonController,
                             maxLines: 3,
+                            maxLength: 500,
                             decoration: _fieldDecoration('Reason'),
                           ),
                           const SizedBox(height: 16),
@@ -1631,8 +2180,7 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
                             label: 'Submit request',
                             background: MColors.terra,
                             foreground: Colors.white,
-                            onTap: () =>
-                                widget.bloc.add(const SubmitLeaveApplication()),
+                            onTap: _submit,
                           ),
                         ],
                       ),
@@ -2915,9 +3463,34 @@ String shortDate(DateTime date) {
 }
 
 String daysAgo(DateTime requestedOn) {
-  final today = DateTime(2026, 6, 24);
-  final days = today.difference(requestedOn).inDays;
+  final days = math.max(0, DateTime.now().difference(requestedOn).inDays);
   return days <= 1 ? '$days day' : '$days days';
+}
+
+String _requestedAgo(DateTime requestedOn) =>
+    'Requested ${daysAgo(requestedOn)} ago';
+
+String _managerDate(DateTime date) {
+  const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return '${date.day} ${_monthName(date.month)} · ${weekdays[date.weekday - 1]}';
+}
+
+String _monthName(int month) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return months[month - 1];
 }
 
 Color scoreColor(double score) {
