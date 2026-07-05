@@ -22,6 +22,14 @@ class AuthUser {
   final String name;
   final String role;
   final String company;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'email': email,
+    'name': name,
+    'role': role,
+    'company': company,
+  };
 }
 
 class AuthSession {
@@ -36,4 +44,6 @@ class AuthSession {
 
   final String token;
   final AuthUser user;
+
+  Map<String, dynamic> toJson() => {'token': token, 'user': user.toJson()};
 }

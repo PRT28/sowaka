@@ -1,8 +1,8 @@
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../services/api_config.dart';
 import 'auth_models.dart';
 
 class AuthApiException implements Exception {
@@ -15,18 +15,9 @@ class AuthApiException implements Exception {
 }
 
 class AuthApiService {
-  AuthApiService({
-    String baseUrl = const String.fromEnvironment('API_BASE_URL'),
-    http.Client? client,
-  }) : _baseUrl = baseUrl.isEmpty ? _defaultBaseUrl : baseUrl,
-       _client = client ?? http.Client();
-
-  static String get _defaultBaseUrl {
-    if (kIsWeb || defaultTargetPlatform == TargetPlatform.iOS) {
-      return 'http://localhost:4000';
-    }
-    return 'http://10.0.2.2:4000';
-  }
+  AuthApiService({String? baseUrl, http.Client? client})
+    : _baseUrl = baseUrl ?? ApiConfig.baseUrl,
+      _client = client ?? http.Client();
 
   final String _baseUrl;
   final http.Client _client;

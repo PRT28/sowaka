@@ -1,21 +1,69 @@
 import type { NextFunction, Request, Response } from 'express';
+import { env } from '../config/env';
+import { AuthError } from '../services/auth.service';
+import { LeaveError } from '../services/leave.service';
+import { ReportingError } from '../services/reporting.service';
+import { ManagerError } from '../services/manager.service';
+import { OvertimeError } from '../services/overtime.service';
+import { ReimbursementError } from '../services/reimbursement.service';
+import { logger } from '../utils/logger';
 
 export const notFoundHandler = (request: Request, response: Response) => {
+  logger.warn('Route not found', requestLogContext(request, 404));
   response.status(404).json({
+    success: false,
     message: `Route not found: ${request.method} ${request.originalUrl}`,
+    requestId: request.requestId,
   });
 };
 
 export const errorHandler = (
-  error: Error,
-  _request: Request,
+  error: unknown,
+  request: Request,
   response: Response,
   _next: NextFunction,
 ) => {
   void _next;
 
-  response.status(500).json({
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'production' ? undefined : error.message,
+  const statusCode = getStatusCode(error);
+  const expected = statusCode < 500;
+  const context = requestLogContext(request, statusCode);
+  if (expected) {
+    logger.warn('Request rejected', context, error);
+  } else {
+    logger.error('Unhandled request error', context, error);
+  }
+
+  const internalMessage = error instanceof Error ? error.message : String(error);
+  response.status(statusCode).json({
+    success: false,
+    message: expected && error instanceof Error ? error.message : 'Internal server error',
+    requestId: request.requestId,
+    ...(env.nodeEnv === 'production' || expected ? {} : { error: internalMessage }),
   });
 };
+
+function getStatusCode(error: unknown): number {
+  if (
+    error instanceof AuthError ||
+    error instanceof LeaveError ||
+    error instanceof ReportingError ||
+    error instanceof ManagerError ||
+    error instanceof OvertimeError ||
+    error instanceof ReimbursementError
+  ) {
+    return error.statusCode;
+  }
+  return 500;
+}
+
+function requestLogContext(request: Request, statusCode: number) {
+  return {
+    requestId: request.requestId,
+    method: request.method,
+    path: request.originalUrl,
+    statusCode,
+    userId: request.auth?.userId,
+    ip: request.ip,
+  };
+}

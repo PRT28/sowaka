@@ -1,8 +1,18 @@
 import { Router } from 'express';
 import { authRouter } from './auth.routes';
 import { healthRouter } from './health.routes';
+import { leaveRouter } from './leave.routes';
+import { reportingRouter } from './reporting.routes';
+import { managerRouter } from './manager.routes';
+import { overtimeRouter } from './overtime.routes';
+import { reimbursementRouter } from './reimbursement.routes';
 
 export const router = Router();
 
 router.use('/auth', authRouter);
 router.use('/health', healthRouter);
+router.use('/leaves', leaveRouter);
+router.use('/manager', managerRouter);
+router.use('/overtime', overtimeRouter);
+router.use('/reimbursements', reimbursementRouter);
+router.use(reportingRouter);

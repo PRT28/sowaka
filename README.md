@@ -44,6 +44,59 @@ npm run backend:build
 npm run backend:start
 ```
 
+### Reporting relationships
+
+Reporting relationships use the stable `User.userId`. Each employee stores one
+`managerUserId`; a manager's employees are queried from that field. These
+administration endpoints require `X-Admin-Key: <HR_ADMIN_API_KEY>`.
+
+```http
+PUT /employees/:employeeUserId/manager
+Content-Type: application/json
+
+{"managerUserId":"manager-user-id"}
+```
+
+```text
+GET    /employees/:employeeUserId/manager
+DELETE /employees/:employeeUserId/manager
+GET    /managers/:managerUserId/employees
+```
+
+Assignments reject self-management, reporting cycles, inactive users, missing
+users, and users from different organizations.
+
+### Leave workflow
+
+Leave APIs require the bearer token returned by `POST /auth/verify-otp`:
+
+```text
+Authorization: Bearer <token>
+```
+
+```http
+POST /leaves
+Content-Type: application/json
+
+{
+  "type": "casual",
+  "startDate": "2026-07-10",
+  "endDate": "2026-07-11",
+  "reason": "Family commitment"
+}
+```
+
+```text
+GET   /leaves/mine
+GET   /leaves/inbox
+PATCH /leaves/:leaveId/decision
+```
+
+The decision body is `{"decision":"approved"}` or
+`{"decision":"declined","managerNote":"..."}`. The backend derives the
+employee from the session and checks the employee's current `managerUserId`
+before exposing or deciding a request.
+
 ## HR Admin Web
 
 ```bash

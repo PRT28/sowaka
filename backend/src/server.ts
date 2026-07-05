@@ -1,6 +1,42 @@
 import { app } from './app';
 import { env } from './config/env';
+import { closeDb, connectDb } from './config/db';
+import { logger } from './utils/logger';
 
-app.listen(env.port, () => {
-  console.log(`API listening on port ${env.port}`);
+async function start(): Promise<void> {
+  await connectDb();
+  logger.info('Connected to MongoDB', { database: env.mongoDbName });
+
+  const server = app.listen(env.port, () => {
+    logger.info('API listening', {
+      port: env.port,
+      environment: env.nodeEnv,
+      corsOrigins: env.corsOrigins,
+      smtpConfigured: Boolean(env.zohoSmtp.user && env.zohoSmtp.pass),
+    });
+  });
+
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info('Shutdown requested', { signal });
+    server.close();
+    await closeDb();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+start().catch((error) => {
+  logger.error('Failed to start server', { environment: env.nodeEnv }, error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', {}, reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception', {}, error);
+  process.exit(1);
 });

@@ -10,8 +10,12 @@ export const env = {
     .map((origin) => origin.trim())
     .filter(Boolean),
   mobileAppApiBaseUrl: process.env.MOBILE_APP_API_BASE_URL ?? 'http://10.0.2.2:4000',
+  mongoUri: process.env.MONGODB_URI ?? '',
+  mongoDbName: process.env.MONGODB_DB ?? 'sowaka',
   otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES ?? 10),
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
+  authSessionTtlDays: Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30),
+  hrAdminApiKey: process.env.HR_ADMIN_API_KEY ?? '',
   zohoSmtp: {
     host: process.env.ZOHO_SMTP_HOST ?? 'smtp.zoho.com',
     port: Number(process.env.ZOHO_SMTP_PORT ?? 465),

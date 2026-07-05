@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../auth/data/auth_models.dart';
 import '../data/manager_api_service.dart';
 import '../data/manager_models.dart';
 
@@ -12,6 +13,7 @@ class ManagerState {
     required this.status,
     required this.tab,
     required this.view,
+    required this.canManage,
     this.dashboard,
     this.selectedMemberId,
     this.recordParams = const <FeedbackParam>[],
@@ -26,17 +28,19 @@ class ManagerState {
     this.error,
   });
 
-  factory ManagerState.initial() {
-    return const ManagerState(
+  factory ManagerState.initial({required bool canManage}) {
+    return ManagerState(
       status: ManagerLoadStatus.initial,
-      tab: ManagerTab.manage,
+      tab: canManage ? ManagerTab.manage : ManagerTab.grow,
       view: ManagerView.home,
+      canManage: canManage,
     );
   }
 
   final ManagerLoadStatus status;
   final ManagerTab tab;
   final ManagerView view;
+  final bool canManage;
   final ManagerDashboard? dashboard;
   final int? selectedMemberId;
   final List<FeedbackParam> recordParams;
@@ -64,6 +68,7 @@ class ManagerState {
     ManagerLoadStatus? status,
     ManagerTab? tab,
     ManagerView? view,
+    bool? canManage,
     ManagerDashboard? dashboard,
     int? selectedMemberId,
     bool clearSelectedMember = false,
@@ -84,6 +89,7 @@ class ManagerState {
       status: status ?? this.status,
       tab: tab ?? this.tab,
       view: view ?? this.view,
+      canManage: canManage ?? this.canManage,
       dashboard: dashboard ?? this.dashboard,
       selectedMemberId: clearSelectedMember
           ? null
@@ -179,6 +185,12 @@ class DecideLeave extends ManagerEvent {
   final LeaveDecision decision;
 }
 
+class DecideOvertime extends ManagerEvent {
+  const DecideOvertime(this.overtimeId, this.decision);
+  final String overtimeId;
+  final LeaveDecision decision;
+}
+
 class OpenAwardPicker extends ManagerEvent {
   const OpenAwardPicker(this.awardKey);
   final String awardKey;
@@ -203,7 +215,45 @@ class CloseApplyLeave extends ManagerEvent {
 }
 
 class SubmitLeaveApplication extends ManagerEvent {
-  const SubmitLeaveApplication();
+  const SubmitLeaveApplication({
+    required this.type,
+    required this.startDate,
+    required this.endDate,
+    required this.reason,
+  });
+
+  final String type;
+  final DateTime startDate;
+  final DateTime endDate;
+  final String reason;
+}
+
+class SubmitOvertimeApplication extends ManagerEvent {
+  const SubmitOvertimeApplication({
+    required this.workDate,
+    required this.duration,
+    required this.project,
+    required this.note,
+  });
+  final DateTime workDate;
+  final String duration;
+  final String project;
+  final String note;
+}
+
+class SubmitReimbursementApplication extends ManagerEvent {
+  const SubmitReimbursementApplication({
+    required this.expenseDate,
+    required this.amount,
+    required this.category,
+    required this.receiptName,
+    required this.note,
+  });
+  final DateTime expenseDate;
+  final String amount;
+  final String category;
+  final String receiptName;
+  final String note;
 }
 
 class ClearManagerMessage extends ManagerEvent {
@@ -211,9 +261,9 @@ class ClearManagerMessage extends ManagerEvent {
 }
 
 class ManagerBloc {
-  ManagerBloc({ManagerApiService service = const ManagerApiService()})
-    : _service = service,
-      _state = ManagerState.initial();
+  ManagerBloc({required AuthSession session, ManagerApiService? service})
+    : _service = service ?? ManagerApiService(session: session),
+      _state = ManagerState.initial(canManage: session.user.role == 'manager');
 
   final ManagerApiService _service;
   final StreamController<ManagerState> _controller =
@@ -254,6 +304,7 @@ class ManagerBloc {
             ),
           );
         case ChangeManagerTab(:final tab):
+          if (tab == ManagerTab.manage && !_state.canManage) return;
           _emit(
             _state.copyWith(
               tab: tab,
@@ -329,13 +380,11 @@ class ManagerBloc {
             member == null ? 'Sent' : 'Sent to ${member.name.split(' ').first}',
           );
         case DecideLeave(:final leaveId, :final decision):
-          await _service.decideLeave();
+          final updatedLeave = await _service.decideLeave(leaveId, decision);
           final data = _state.dashboard;
           if (data == null) return;
           final leaves = data.leaves.map((leave) {
-            return leave.id == leaveId
-                ? leave.copyWith(decision: decision)
-                : leave;
+            return leave.id == leaveId ? updatedLeave : leave;
           }).toList();
           _emit(
             _state.copyWith(
@@ -345,14 +394,36 @@ class ManagerBloc {
                   : 'Leave declined',
             ),
           );
+        case DecideOvertime(:final overtimeId, :final decision):
+          final updated = await _service.decideOvertimeRequest(
+            overtimeId,
+            decision,
+          );
+          final data = _state.dashboard;
+          if (data == null) return;
+          final overtime = data.overtime.map((request) {
+            return request.id == overtimeId ? updated : request;
+          }).toList();
+          _emit(
+            _state.copyWith(
+              dashboard: data.copyWith(overtime: overtime),
+              message: decision == LeaveDecision.approved
+                  ? 'Overtime approved'
+                  : 'Overtime declined',
+            ),
+          );
         case OpenAwardPicker(:final awardKey):
           _emit(_state.copyWith(awardPickerKey: awardKey));
         case CloseAwardPicker():
           _emit(_state.copyWith(clearAwardPicker: true));
         case NominateAward(:final awardKey, :final memberId):
-          await _service.nominateAward();
           final data = _state.dashboard;
           if (data == null) return;
+          final member = data.recognitionCandidates
+              .where((item) => item.id == memberId)
+              .firstOrNull;
+          if (member == null) return;
+          await _service.nominateAward(awardKey, member);
           final awards = data.awards.map((award) {
             return award.key == awardKey
                 ? award.copyWith(nomineeId: memberId)
@@ -369,12 +440,68 @@ class ManagerBloc {
           _emit(_state.copyWith(applyLeaveOpen: true, applyLeaveSent: false));
         case CloseApplyLeave():
           _emit(_state.copyWith(applyLeaveOpen: false, applyLeaveSent: false));
-        case SubmitLeaveApplication():
-          await _service.submitLeaveApplication();
+        case SubmitLeaveApplication(
+          :final type,
+          :final startDate,
+          :final endDate,
+          :final reason,
+        ):
+          final leave = await _service.submitLeaveApplication(
+            type: type,
+            startDate: startDate,
+            endDate: endDate,
+            reason: reason,
+          );
+          final data = _state.dashboard;
           _emit(
             _state.copyWith(
+              dashboard: data?.copyWith(myLeaves: [leave, ...data.myLeaves]),
               applyLeaveSent: true,
               message: 'Leave request submitted',
+            ),
+          );
+        case SubmitOvertimeApplication(
+          :final workDate,
+          :final duration,
+          :final project,
+          :final note,
+        ):
+          final request = await _service.submitOvertime(
+            workDate: workDate,
+            duration: duration,
+            project: project,
+            note: note,
+          );
+          final data = _state.dashboard;
+          _emit(
+            _state.copyWith(
+              dashboard: data?.copyWith(
+                myOvertime: [request, ...data.myOvertime],
+              ),
+              message: 'Overtime request submitted',
+            ),
+          );
+        case SubmitReimbursementApplication(
+          :final expenseDate,
+          :final amount,
+          :final category,
+          :final receiptName,
+          :final note,
+        ):
+          final claim = await _service.submitReimbursement(
+            expenseDate: expenseDate,
+            amount: amount,
+            category: category,
+            receiptName: receiptName,
+            note: note,
+          );
+          final data = _state.dashboard;
+          _emit(
+            _state.copyWith(
+              dashboard: data?.copyWith(
+                myReimbursements: [claim, ...data.myReimbursements],
+              ),
+              message: 'Reimbursement claim submitted',
             ),
           );
         case ClearManagerMessage():
@@ -383,8 +510,11 @@ class ManagerBloc {
     } catch (error) {
       _emit(
         _state.copyWith(
-          status: ManagerLoadStatus.failure,
-          error: error.toString(),
+          status: _state.dashboard == null
+              ? ManagerLoadStatus.failure
+              : ManagerLoadStatus.ready,
+          error: _state.dashboard == null ? error.toString() : null,
+          message: _state.dashboard == null ? null : error.toString(),
         ),
       );
     }
@@ -395,12 +525,17 @@ class ManagerBloc {
     final selected = _state.selectedMember;
     if (data == null || selected == null) return;
 
-    await _service.saveFeedback();
     final params = _state.recordParams;
     final overall = params.isEmpty
         ? selected.score
         : params.fold<double>(0, (sum, item) => sum + item.score) /
               params.length;
+    await _service.saveFeedback(
+      member: selected,
+      status: status,
+      params: params,
+      extra: _state.recordExtra,
+    );
     final team = data.team.map((member) {
       if (member.id != selected.id) return member;
       return member.copyWith(

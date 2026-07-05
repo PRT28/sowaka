@@ -1,172 +1,283 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../../../services/api_config.dart';
+import '../../auth/data/auth_models.dart';
 import 'manager_models.dart';
 
 class ManagerApiService {
-  const ManagerApiService();
+  ManagerApiService({
+    required this.session,
+    String? baseUrl,
+    http.Client? client,
+  }) : _baseUrl = baseUrl ?? ApiConfig.baseUrl,
+       _client = client ?? http.Client();
+
+  final AuthSession session;
+  final String _baseUrl;
+  final http.Client _client;
 
   Future<ManagerDashboard> fetchDashboard() async {
-    await Future<void>.delayed(const Duration(milliseconds: 450));
+    final workspaceFuture = _request('GET', '/manager/workspace');
+    final myLeavesFuture = fetchMyLeaves();
+    final managerLeavesFuture = fetchManagerLeaves();
+    final balanceFuture = _request('GET', '/leaves/balance');
+    final myOvertimeFuture = fetchMyOvertime();
+    final overtimeFuture = fetchManagerOvertime();
+    final reimbursementsFuture = fetchMyReimbursements();
+    final workspace = await workspaceFuture;
+    final teamValues = workspace['team'] as List<dynamic>? ?? const [];
+    final team = teamValues.indexed.map((entry) {
+      return TeamMember.fromJson(
+        entry.$2 as Map<String, dynamic>,
+        entry.$1 + 1,
+      );
+    }).toList();
+    final candidateValues =
+        workspace['recognitionCandidates'] as List<dynamic>? ?? const [];
+    final recognitionCandidates = candidateValues.indexed.map((entry) {
+      return TeamMember.fromJson(
+        entry.$2 as Map<String, dynamic>,
+        entry.$1 + 1,
+      );
+    }).toList();
+    final nominations = workspace['nominations'] as List<dynamic>? ?? const [];
+    final nomineeByCategory = <String, int>{};
+    for (final value in nominations) {
+      final nomination = value as Map<String, dynamic>;
+      final userId = nomination['employeeUserId'] as String?;
+      final member = recognitionCandidates
+          .where((item) => item.userId == userId)
+          .firstOrNull;
+      if (member != null) {
+        nomineeByCategory[nomination['category'] as String] = member.id;
+      }
+    }
 
     return ManagerDashboard(
-      managerName: 'Arjun Mehta',
-      managerInitial: 'A',
-      managerTeam: 'Engineering',
-      managerScore: 4.4,
-      today: DateTime(2026, 6, 24),
-      team: _team,
-      leaves: _leaves,
-      awards: _awards,
+      managerName: session.user.name,
+      managerInitial: session.user.name.isEmpty ? '?' : session.user.name[0],
+      managerTeam: session.user.company,
+      approverName: workspace['approverName'] as String? ?? 'Your manager',
+      managerScore: (workspace['managerScore'] as num?)?.toDouble() ?? 0,
+      today: DateTime.now(),
+      team: team,
+      recognitionCandidates: recognitionCandidates,
+      leaves: await managerLeavesFuture,
+      myLeaves: await myLeavesFuture,
+      awards: _awardDefinitions
+          .map(
+            (award) => award.copyWith(nomineeId: nomineeByCategory[award.key]),
+          )
+          .toList(),
+      leaveBalance: LeaveBalance.fromJson(
+        (await balanceFuture)['balance'] as Map<String, dynamic>,
+      ),
+      overtime: await overtimeFuture,
+      myOvertime: await myOvertimeFuture,
+      myReimbursements: await reimbursementsFuture,
     );
   }
 
-  Future<void> saveFeedback() async {
-    await Future<void>.delayed(const Duration(milliseconds: 280));
+  Future<List<LeaveRequest>> fetchMyLeaves() async {
+    final json = await _request('GET', '/leaves/mine');
+    return _parseLeaves(json);
   }
 
-  Future<void> decideLeave() async {
-    await Future<void>.delayed(const Duration(milliseconds: 220));
+  Future<List<LeaveRequest>> fetchManagerLeaves() async {
+    final json = await _request('GET', '/leaves/inbox');
+    return _parseLeaves(json);
   }
 
-  Future<void> nominateAward() async {
-    await Future<void>.delayed(const Duration(milliseconds: 220));
+  Future<void> saveFeedback({
+    required TeamMember member,
+    required FeedbackStatus status,
+    required List<FeedbackParam> params,
+    required String extra,
+  }) async {
+    await _request(
+      'PUT',
+      '/manager/feedback/${member.userId}',
+      body: {
+        'status': status.name,
+        'parameters': params
+            .map(
+              (param) => {
+                'name': param.name,
+                'score': param.score,
+                'note': param.note,
+              },
+            )
+            .toList(),
+        'extra': extra,
+      },
+    );
   }
 
-  Future<void> submitLeaveApplication() async {
-    await Future<void>.delayed(const Duration(milliseconds: 350));
+  Future<LeaveRequest> decideLeave(
+    String leaveId,
+    LeaveDecision decision,
+  ) async {
+    final json = await _request(
+      'PATCH',
+      '/leaves/$leaveId/decision',
+      body: {'decision': decision.name},
+    );
+    return LeaveRequest.fromJson(json['leave'] as Map<String, dynamic>);
+  }
+
+  Future<void> nominateAward(String awardKey, TeamMember member) async {
+    await _request(
+      'PUT',
+      '/manager/recognition/$awardKey',
+      body: {'employeeUserId': member.userId},
+    );
+  }
+
+  Future<LeaveRequest> submitLeaveApplication({
+    required String type,
+    required DateTime startDate,
+    required DateTime endDate,
+    required String reason,
+  }) async {
+    final json = await _request(
+      'POST',
+      '/leaves',
+      body: {
+        'type': type.toLowerCase(),
+        'startDate': _dateOnly(startDate),
+        'endDate': _dateOnly(endDate),
+        'reason': reason,
+      },
+    );
+    return LeaveRequest.fromJson(json['leave'] as Map<String, dynamic>);
+  }
+
+  Future<List<OvertimeRequest>> fetchMyOvertime() async {
+    final json = await _request('GET', '/overtime/mine');
+    return _parseOvertime(json);
+  }
+
+  Future<List<OvertimeRequest>> fetchManagerOvertime() async {
+    final json = await _request('GET', '/overtime/inbox');
+    return _parseOvertime(json);
+  }
+
+  Future<OvertimeRequest> submitOvertime({
+    required DateTime workDate,
+    required String duration,
+    required String project,
+    required String note,
+  }) async {
+    final json = await _request(
+      'POST',
+      '/overtime',
+      body: {
+        'workDate': _dateOnly(workDate),
+        'duration': duration == 'Full day' ? 'full_day' : 'half_day',
+        'project': project,
+        'note': note,
+      },
+    );
+    return OvertimeRequest.fromJson(json['overtime'] as Map<String, dynamic>);
+  }
+
+  Future<OvertimeRequest> decideOvertimeRequest(
+    String overtimeId,
+    LeaveDecision decision,
+  ) async {
+    final json = await _request(
+      'PATCH',
+      '/overtime/$overtimeId/decision',
+      body: {'decision': decision.name},
+    );
+    return OvertimeRequest.fromJson(json['overtime'] as Map<String, dynamic>);
+  }
+
+  Future<List<ReimbursementClaim>> fetchMyReimbursements() async {
+    final json = await _request('GET', '/reimbursements/mine');
+    final values = json['claims'] as List<dynamic>? ?? const [];
+    return values
+        .map(
+          (value) => ReimbursementClaim.fromJson(value as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<ReimbursementClaim> submitReimbursement({
+    required DateTime expenseDate,
+    required String amount,
+    required String category,
+    required String receiptName,
+    required String note,
+  }) async {
+    final json = await _request(
+      'POST',
+      '/reimbursements',
+      body: {
+        'expenseDate': _dateOnly(expenseDate),
+        'amount': double.tryParse(amount.replaceAll(',', '')),
+        'category': category.toLowerCase(),
+        'receiptName': receiptName,
+        'note': note,
+      },
+    );
+    return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
+  }
+
+  Future<Map<String, dynamic>> _request(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final request = http.Request(method, Uri.parse('$_baseUrl$path'))
+      ..headers.addAll({
+        'Authorization': 'Bearer ${session.token}',
+        'Content-Type': 'application/json',
+      });
+    if (body != null) request.body = jsonEncode(body);
+
+    final streamed = await _client.send(request);
+    final response = await http.Response.fromStream(streamed);
+    final json = response.body.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ManagerApiException(json['message'] as String? ?? 'Request failed');
+    }
+    return json;
   }
 }
 
-final List<TeamMember> _team = <TeamMember>[
-  _member(1, 'Prashant Kumar', 'Engineering', 4.5, '2026-07-05', 'sent', 0),
-  _member(2, 'Sneha Sharma', 'Design', 3.4, '2026-05-02', 'missed', 2),
-  _member(3, 'Rahul Mehta', 'Engineering', 4.1, '2026-06-25', 'pending', 0),
-  _member(4, 'Kabir Singh', 'Sales', 3.9, '2026-06-26', 'pending', 0),
-  _member(5, 'Tara Nair', 'Marketing', 4.3, '2026-06-27', 'pending', 0),
-  _member(6, 'Aditya Rao', 'Engineering', 4.0, '2026-05-30', 'missed', 1),
-  _member(7, 'Meera Iyer', 'Design', 4.6, '2026-07-12', 'sent', 0),
-  _member(8, 'Vikram Joshi', 'Sales', 3.7, '2026-06-28', 'pending', 0),
-  _member(9, 'Ananya Bose', 'Support', 4.2, '2026-05-28', 'missed', 1),
-  _member(10, 'Rohan Gupta', 'Engineering', 4.4, '2026-07-02', 'pending', 0),
-  _member(11, 'Priya Menon', 'Marketing', 3.8, '2026-06-26', 'pending', 0),
-  _member(12, 'Arjun Reddy', 'Operations', 4.1, '2026-07-09', 'sent', 0),
-  _member(13, 'Isha Kapoor', 'Design', 4.5, '2026-07-14', 'pending', 0),
-  _member(14, 'Karthik Nair', 'Engineering', 3.6, '2026-06-27', 'pending', 0),
-  _member(15, 'Divya Pillai', 'Support', 4.0, '2026-07-03', 'pending', 0),
-  _member(16, 'Nikhil Verma', 'Sales', 4.2, '2026-05-29', 'missed', 1),
-  _member(17, 'Sanya Malhotra', 'Finance', 4.7, '2026-07-16', 'pending', 0),
-  _member(18, 'Aman Khanna', 'Engineering', 3.9, '2026-06-28', 'pending', 0),
-  _member(19, 'Riya Sen', 'People', 4.3, '2026-07-06', 'sent', 0),
-  _member(20, 'Siddharth Jain', 'Operations', 4.0, '2026-07-11', 'pending', 0),
-  _member(21, 'Pooja Desai', 'Marketing', 4.4, '2026-07-15', 'pending', 0),
-  _member(22, 'Varun Shetty', 'Engineering', 3.5, '2026-06-25', 'pending', 0),
-  _member(23, 'Neha Aggarwal', 'Support', 4.1, '2026-07-04', 'pending', 0),
-  _member(24, 'Manish Tiwari', 'Sales', 3.8, '2026-07-08', 'pending', 0),
-  _member(25, 'Lakshmi Krishnan', 'Finance', 4.6, '2026-07-07', 'sent', 0),
-  _member(26, 'Gaurav Bhatt', 'Engineering', 4.0, '2026-07-13', 'pending', 0),
-  _member(27, 'Tanvi Shah', 'Design', 4.5, '2026-07-10', 'sent', 0),
-  _member(28, 'Harsh Patel', 'Operations', 3.7, '2026-07-17', 'pending', 0),
-  _member(29, 'Aisha Khan', 'People', 4.2, '2026-07-18', 'pending', 0),
-  _member(30, 'Dev Saxena', 'Engineering', 4.3, '2026-06-26', 'pending', 0),
-];
-
-TeamMember _member(
-  int id,
-  String name,
-  String team,
-  double score,
-  String next,
-  String status,
-  int missed,
-) {
-  final feedbackStatus = switch (status) {
-    'sent' => FeedbackStatus.sent,
-    'missed' => FeedbackStatus.missed,
-    'saved' => FeedbackStatus.saved,
-    _ => FeedbackStatus.pending,
-  };
-  return TeamMember(
-    id: id,
-    name: name,
-    initial: name[0],
-    team: team,
-    score: score,
-    next: DateTime.parse(next),
-    status: feedbackStatus,
-    missedMonths: missed,
-    avatarIndex: (id - 1) % 7,
-    params: _params(feedbackStatus),
-    extra: '',
-  );
+List<LeaveRequest> _parseLeaves(Map<String, dynamic> json) {
+  final values = json['leaves'] as List<dynamic>? ?? const [];
+  return values
+      .map((value) => LeaveRequest.fromJson(value as Map<String, dynamic>))
+      .toList();
 }
 
-List<FeedbackParam> _params(FeedbackStatus status) {
-  final started = status != FeedbackStatus.pending;
-  return <FeedbackParam>[
-    FeedbackParam(
-      name: 'Ownership Mindset',
-      score: started ? 4.0 : 0,
-      note: started ? 'Took responsibility for key follow-through items.' : '',
-    ),
-    FeedbackParam(
-      name: 'Communication Clarity',
-      score: started ? 3.5 : 0,
-      note: started ? 'Written updates were clear and timely.' : '',
-    ),
-    FeedbackParam(
-      name: 'Quality of Work',
-      score: started ? 4.0 : 0,
-      note: started ? 'Reliable output with few rework loops.' : '',
-    ),
-    FeedbackParam(
-      name: 'Collaboration',
-      score: started ? 4.0 : 0,
-      note: started ? 'Supported teammates during delivery pressure.' : '',
-    ),
-  ];
+List<OvertimeRequest> _parseOvertime(Map<String, dynamic> json) {
+  final values = json['overtime'] as List<dynamic>? ?? const [];
+  return values
+      .map((value) => OvertimeRequest.fromJson(value as Map<String, dynamic>))
+      .toList();
 }
 
-final List<LeaveRequest> _leaves = <LeaveRequest>[
-  LeaveRequest(
-    id: 'l1',
-    who: 'Sneha Sharma',
-    initial: 'S',
-    avatarIndex: 5,
-    type: 'Sick',
-    start: DateTime(2026, 6, 25),
-    end: DateTime(2026, 6, 26),
-    days: 2,
-    reason: 'Down with fever',
-    requestedOn: DateTime(2026, 6, 23),
-    decision: LeaveDecision.pending,
-  ),
-  LeaveRequest(
-    id: 'l2',
-    who: 'Tara Nair',
-    initial: 'T',
-    avatarIndex: 4,
-    type: 'Casual',
-    start: DateTime(2026, 7, 1),
-    end: DateTime(2026, 7, 3),
-    days: 3,
-    reason: 'Family function out of town',
-    requestedOn: DateTime(2026, 6, 22),
-    decision: LeaveDecision.pending,
-  ),
-  LeaveRequest(
-    id: 'l3',
-    who: 'Prashant Kumar',
-    initial: 'P',
-    avatarIndex: 1,
-    type: 'Earned',
-    start: DateTime(2026, 7, 14),
-    end: DateTime(2026, 7, 18),
-    days: 5,
-    reason: 'Planned vacation',
-    requestedOn: DateTime(2026, 6, 20),
-    decision: LeaveDecision.pending,
-  ),
-];
+String _dateOnly(DateTime value) {
+  final date = DateTime(value.year, value.month, value.day);
+  return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+}
 
-const List<AwardNomination> _awards = <AwardNomination>[
+class ManagerApiException implements Exception {
+  const ManagerApiException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+const List<AwardNomination> _awardDefinitions = <AwardNomination>[
   AwardNomination(
     key: 'artist',
     title: 'Best Artist',
