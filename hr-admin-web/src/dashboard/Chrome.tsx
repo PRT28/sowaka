@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import type { View } from './theme';
 import { TITLES } from './theme';
-import { IconBell, IconCheck, IconChevronUpDown, IconSearch, Logo, navIcon } from './icons';
+import { IconBell, IconCheck, IconLogout, IconSearch, Logo, navIcon } from './icons';
 import { useStore } from './store';
 
 type NavItem = { key: View; label: string };
@@ -93,7 +93,16 @@ function NavButton({ item, badge }: { item: NavItem; badge?: ReactNode }) {
 }
 
 export function Sidebar() {
-  const { leaves, ots, rbs, fbMgrs } = useStore();
+  const { leaves, ots, rbs, fbMgrs, user, signOut } = useStore();
+  const displayName = user?.name ?? 'HR Admin';
+  const roleLabel = user ? `${user.role[0].toUpperCase()}${user.role.slice(1)} · ${user.company}` : 'HR Admin';
+  const userInitials = displayName
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase();
   const leavesPending = leaves.filter((l) => l.status === 'Pending').length;
   const otPending = ots.filter((o) => o.status === 'Pending').length;
   const claims = rbs.filter((r) => r.status === 'Pending').length;
@@ -159,7 +168,11 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 10px', marginTop: 8, borderTop: '1px solid #ECE2D4' }}>
+      <button
+        onClick={() => void signOut()}
+        title="Sign out"
+        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 10px', marginTop: 8, width: '100%', background: 'none', border: 'none', borderTop: '1px solid #ECE2D4', cursor: 'pointer', textAlign: 'left' }}
+      >
         <div
           style={{
             width: 33,
@@ -175,14 +188,14 @@ export function Sidebar() {
             flexShrink: 0,
           }}
         >
-          AV
+          {userInitials}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Aanya Verma</div>
-          <div style={{ fontSize: 11, color: '#A89C8B', fontWeight: 500 }}>HR Admin</div>
+          <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{displayName}</div>
+          <div style={{ fontSize: 11, color: '#A89C8B', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{roleLabel}</div>
         </div>
-        <IconChevronUpDown />
-      </div>
+        <IconLogout />
+      </button>
     </aside>
   );
 }

@@ -16,7 +16,7 @@ export type View =
   | 'orgchart';
 
 export type LeaveType = 'Sick' | 'Casual' | 'Earned' | 'WFH' | 'Unpaid';
-export type ReqStatus = 'Pending' | 'Approved' | 'Declined';
+export type ReqStatus = 'Pending' | 'Approved' | 'Declined' | 'Paid';
 export type FeedbackStatus = 'Submitted' | 'Acknowledged' | 'Pending' | 'Draft';
 export type EmpType = 'Full-time' | 'Contract' | 'Intern';
 export type OtDuration = 'Full day' | 'Half day';
@@ -47,6 +47,7 @@ export const STAT: Record<ReqStatus, Pill> = {
   Pending: { bg: '#F6E9D5', fg: '#9A6B25' },
   Approved: { bg: '#E4EDE0', fg: '#4F7A52' },
   Declined: { bg: '#F4DEE2', fg: '#A8475F' },
+  Paid: { bg: '#E7ECF4', fg: '#4A6FA5' },
 };
 
 export const FSTAT: Record<FeedbackStatus, Pill> = {

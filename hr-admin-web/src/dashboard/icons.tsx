@@ -246,3 +246,10 @@ export const IconChevronUpDown = ({ size = 16, stroke = '#B7AC9B' }: IconProps) 
     <path d="M8 9l4-4 4 4M8 15l4 4 4-4" />
   </svg>
 );
+
+export const IconLogout = ({ size = 16, stroke = '#B7AC9B' }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 21H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8" />
+    <path d="M17 16l4-4-4-4M21 12H9" />
+  </svg>
+);
