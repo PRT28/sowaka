@@ -1,0 +1,146 @@
+import { useStore } from '../store';
+import { STAT } from '../theme';
+import type { ReqStatus } from '../theme';
+import { Avatar, Card, EmptyRow, Pill, SearchInput, SelectBox, StatusTabs, SummaryCard } from '../ui';
+import { IconCheck, IconDownload, IconEye, IconX } from '../icons';
+
+const COLS = '1.7fr 1.1fr 1fr 1fr 1fr 1.3fr 1fr 1.1fr';
+
+export function Reimbursements() {
+  const s = useStore();
+  const all = s.rbs;
+  const rtot = all.reduce((a, r) => a + r.amountN, 0);
+  const rpend = all.filter((r) => r.status === 'Pending').reduce((a, r) => a + r.amountN, 0);
+  const summary = {
+    count: all.length,
+    pending: all.filter((r) => r.status === 'Pending').length,
+    total: '₹' + rtot.toLocaleString('en-IN'),
+    pendingAmt: '₹' + rpend.toLocaleString('en-IN'),
+  };
+
+  let rows = all.slice();
+  const q = s.rbSearch.trim().toLowerCase();
+  if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q));
+  if (s.rbStatus !== 'all') rows = rows.filter((r) => r.status === s.rbStatus);
+  if (s.rbType !== 'all') rows = rows.filter((r) => r.type === s.rbType);
+  const rs = s.rbSort;
+  if (rs === 'recent') rows.sort((a, b) => b.ord - a.ord);
+  else if (rs === 'oldest') rows.sort((a, b) => a.ord - b.ord);
+  else if (rs === 'amount') rows.sort((a, b) => b.amountN - a.amountN);
+  else if (rs === 'name') rows.sort((a, b) => a.name.localeCompare(b.name));
+
+  return (
+    <div style={{ animation: 'fade .3s ease both' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 20 }}>
+        <SummaryCard label="Total claims" value={summary.count} />
+        <SummaryCard label="Awaiting review" value={summary.pending} color="#9A6B25" />
+        <SummaryCard label="Pending value" value={summary.pendingAmt} color="#9A6B25" />
+        <SummaryCard label="Total submitted" value={summary.total} />
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 14, flexWrap: 'wrap' }}>
+        <SearchInput value={s.rbSearch} onChange={s.setRbSearch} placeholder="Search by employee…" width={240} />
+        <StatusTabs<ReqStatus | 'all'>
+          options={['all', 'Pending', 'Approved', 'Declined']}
+          active={s.rbStatus}
+          onSelect={s.setRbStatus}
+        />
+        <SelectBox value={s.rbType} onChange={s.setRbType}>
+          <option value="all">All types</option>
+          <option value="Travel">Travel</option>
+          <option value="Meals">Meals</option>
+          <option value="Software">Software</option>
+          <option value="Hardware">Hardware</option>
+          <option value="Internet">Internet</option>
+          <option value="Training">Training</option>
+        </SelectBox>
+        <SelectBox value={s.rbSort} onChange={s.setRbSort}>
+          <option value="recent">Most recent</option>
+          <option value="oldest">Oldest first</option>
+          <option value="amount">Highest amount</option>
+          <option value="name">Name A–Z</option>
+        </SelectBox>
+        <button
+          onClick={() => s.flash(`Exported ${rows.length} claims to CSV`)}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+        >
+          <IconDownload /> Export
+        </button>
+      </div>
+
+      <Card>
+        <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '14px 22px', borderBottom: '1px solid #F0E8DB', fontSize: 11, fontWeight: 700, letterSpacing: '.5px', color: '#A89C8B' }}>
+          <div>EMPLOYEE</div>
+          <div>TYPE</div>
+          <div>AMOUNT</div>
+          <div>BILL DATE</div>
+          <div>APPLIED</div>
+          <div>MANAGER</div>
+          <div>STATUS</div>
+          <div style={{ textAlign: 'right' }}>ACTION</div>
+        </div>
+        {rows.map((r) => {
+          const pending = r.status === 'Pending';
+          const declineOpen = s.rbDeclineId === r.id;
+          return (
+            <div
+              key={r.id}
+              className="dc-row"
+              onClick={() => s.setRbDrawerId(r.id)}
+              style={{ position: 'relative', display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '14px 22px', borderBottom: '1px solid #F4EEE3', alignItems: 'center', cursor: 'pointer', transition: 'background .12s' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+                <Avatar name={r.name} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
+                  <div style={{ fontSize: 11.5, color: '#A89C8B', fontWeight: 500 }}>{r.team}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.type}</div>
+              <div style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '-.2px' }}>{r.amount}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.billDate}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.applyDate}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.manager}</div>
+              <div>
+                <Pill label={r.status} tone={STAT[r.status]} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7 }} onClick={(e) => e.stopPropagation()}>
+                {pending ? (
+                  <>
+                    <button onClick={() => s.rbOpenDecline(r.id)} title="Decline" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EBD9DE', background: '#FBF1F3', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconX />
+                    </button>
+                    <button onClick={() => s.rbApprove(r.id)} title="Approve" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #D7E2D2', background: '#EDF3E9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <IconCheck />
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => s.setRbDrawerId(r.id)} title="View" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <IconEye />
+                  </button>
+                )}
+              </div>
+              {declineOpen && (
+                <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', right: 18, top: 54, zIndex: 40, width: 300, background: '#fff', border: '1px solid #EADFCF', borderRadius: 14, boxShadow: '0 16px 40px rgba(70,50,30,.18)', padding: 15, animation: 'pop .16s ease both' }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 3 }}>Decline {r.name.split(' ')[0]}'s claim</div>
+                  <div style={{ fontSize: 12, color: '#9B9082', fontWeight: 500, marginBottom: 10 }}>Add a remark so they know why.</div>
+                  <textarea
+                    value={s.rbDeclineText}
+                    onChange={(e) => s.setRbDeclineText(e.target.value)}
+                    placeholder="e.g. Out of budget — resubmit next quarter"
+                    style={{ width: '100%', height: 64, resize: 'none', border: '1px solid #EBE1D2', borderRadius: 10, padding: '9px 11px', fontSize: 12.5, outline: 'none', color: '#2A2420' }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
+                    <button onClick={() => s.rbCancelDecline()} style={{ flex: 1, border: '1px solid #EBE1D2', background: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, color: '#6E6457', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={() => s.rbConfirmDecline(r.id)} style={{ flex: 1, border: 'none', background: '#A8475F', color: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Decline</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {rows.length === 0 && <EmptyRow text="No claims match your filters." />}
+      </Card>
+    </div>
+  );
+}

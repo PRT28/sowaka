@@ -1,0 +1,48 @@
+// Thin fetch wrapper: base URL, bearer-token injection, JSON parsing, typed errors.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+
+const TOKEN_KEY = 'sowaka.token';
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string | null) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+type Options = Omit<RequestInit, 'body'> & { body?: unknown };
+
+export async function api<T>(path: string, opts: Options = {}): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts.headers as Record<string, string> | undefined),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...opts,
+    headers,
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+  });
+
+  if (res.status === 204) return undefined as T;
+
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    const message = (data.message as string) || `Request failed (${res.status})`;
+    throw new ApiError(res.status, message);
+  }
+  return data as T;
+}
