@@ -173,11 +173,15 @@ class _ManagerScreenState extends State<ManagerScreen> {
                       Column(
                         children: [
                           Expanded(
-                            child: _TabContent(
-                              state: state,
-                              bloc: _bloc,
-                              quickActionsController: _quickActionsController,
-                              onOpenProfile: _openProfile,
+                            child: MediaQuery.removePadding(
+                              context: context,
+                              removeBottom: true,
+                              child: _TabContent(
+                                state: state,
+                                bloc: _bloc,
+                                quickActionsController: _quickActionsController,
+                                onOpenProfile: _openProfile,
+                              ),
                             ),
                           ),
                           _BottomTabs(state: state, bloc: _bloc),
@@ -517,109 +521,185 @@ class _FeedbackList extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = state.dashboard!;
     final open = data.team
-        .where(
-          (item) =>
-              item.status != FeedbackStatus.sent &&
-              item.status != FeedbackStatus.missed,
-        )
+        .where((item) => item.status != FeedbackStatus.sent)
         .toList();
-    final given = data.team
-        .where(
-          (item) =>
-              item.status == FeedbackStatus.sent ||
-              item.status == FeedbackStatus.missed,
-        )
+    final completed = data.team
+        .where((item) => item.status == FeedbackStatus.sent)
         .toList();
-    final overdue = open.where((item) => item.missedMonths > 0).toList();
-    final soon = open
-        .where((item) => _daysUntil(data.today, item.next) <= 4)
-        .toList();
+    int urgency(TeamMember member) {
+      if (member.missedMonths > 0 || member.status == FeedbackStatus.missed) {
+        return 0;
+      }
+      final days = _daysUntil(data.today, member.next);
+      return days >= 0 && days <= 4 ? 1 : 2;
+    }
 
-    var visible = open.where((item) {
-      final query = state.searchQuery.trim().toLowerCase();
-      if (query.isEmpty) return true;
-      return item.name.toLowerCase().contains(query) ||
+    int sortByUrgency(TeamMember a, TeamMember b) {
+      final byGroup = urgency(a).compareTo(urgency(b));
+      return byGroup != 0 ? byGroup : a.next.compareTo(b.next);
+    }
+
+    final overdue = open.where((item) => urgency(item) == 0).toList()
+      ..sort(sortByUrgency);
+    final soon = open.where((item) => urgency(item) == 1).toList()
+      ..sort(sortByUrgency);
+    final later = open.where((item) => urgency(item) == 2).toList()
+      ..sort(sortByUrgency);
+    final query = state.searchQuery.trim().toLowerCase();
+    final visible = open.where((item) {
+      final matches =
+          query.isEmpty ||
+          item.name.toLowerCase().contains(query) ||
           item.team.toLowerCase().contains(query);
-    }).toList();
-    visible = switch (state.feedbackFilter) {
-      FeedbackFilter.overdue =>
-        visible.where((item) => item.missedMonths > 0).toList(),
-      FeedbackFilter.soon =>
-        visible
-            .where(
-              (item) =>
-                  item.missedMonths == 0 &&
-                  _daysUntil(data.today, item.next) <= 4,
-            )
-            .toList(),
-      FeedbackFilter.all => visible,
-    };
-    visible.sort((a, b) {
-      final ar = a.missedMonths > 0
-          ? 0
-          : _daysUntil(data.today, a.next) <= 4
-          ? 1
-          : 2;
-      final br = b.missedMonths > 0
-          ? 0
-          : _daysUntil(data.today, b.next) <= 4
-          ? 1
-          : 2;
-      return ar == br ? a.next.compareTo(b.next) : ar.compareTo(br);
-    });
+      if (!matches) return false;
+      return switch (state.feedbackFilter) {
+        FeedbackFilter.all => true,
+        FeedbackFilter.overdue => urgency(item) == 0,
+        FeedbackFilter.soon => urgency(item) == 1,
+      };
+    }).toList()..sort(sortByUrgency);
+    final grouped = state.feedbackFilter == FeedbackFilter.all && query.isEmpty;
+    final progress = data.team.isEmpty
+        ? 0.0
+        : completed.length / data.team.length;
 
     return Column(
       key: const ValueKey('feedback-list'),
       children: [
-        _TopBar(
-          title: 'Monthly Check-ins',
-          sub: '${_monthName(data.today.month)} · for you to action',
-          onBack: () => bloc.add(const CloseFeedbackList()),
-        ),
-        Expanded(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 34),
+        Container(
+          padding: const EdgeInsets.fromLTRB(20, 54, 20, 10),
+          child: Column(
             children: [
               Row(
                 children: [
+                  RoundIconButton(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: () => bloc.add(const CloseFeedbackList()),
+                  ),
+                  const SizedBox(width: 11),
                   Expanded(
-                    child: _MetricCard(
-                      value: '${open.length}',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${_monthName(data.today.month)} · for you to action',
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        const Text(
+                          'Monthly Check-ins',
+                          style: TextStyle(
+                            color: MColors.ink,
+                            fontSize: 27,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  AvatarBadge(initial: data.managerInitial, index: 1, size: 42),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _FeedbackStat(
+                      value: open.length,
                       label: 'feedback to give',
                       color: MColors.terra,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: _MetricCard(
-                      value: '${overdue.length}',
+                    child: _FeedbackStat(
+                      value: overdue.length,
                       label: 'overdue',
                       color: overdue.isEmpty ? MColors.sageDeep : MColors.live,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              _SectionTitle(
-                title: 'Feedback',
-                trailing: '${given.length} of ${data.team.length} given',
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 36),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Feedback',
+                      style: TextStyle(
+                        color: MColors.ink,
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${completed.length} of ${data.team.length} given',
+                      style: const TextStyle(
+                        color: MColors.inkSoft,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 10),
-              _ProgressBar(
-                value: given.length / data.team.length,
-                color: MColors.terra,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 8,
+                  color: MColors.terra,
+                  backgroundColor: MColors.line,
+                ),
               ),
               const SizedBox(height: 14),
-              _SearchBox(
-                value: state.searchQuery,
+              TextFormField(
+                key: ValueKey(state.searchQuery),
+                initialValue: state.searchQuery,
                 onChanged: (value) => bloc.add(ChangeFeedbackSearch(value)),
+                decoration: InputDecoration(
+                  hintText: 'Find a teammate',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  suffixIcon: state.searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () =>
+                              bloc.add(const ChangeFeedbackSearch('')),
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(13),
+                    borderSide: const BorderSide(color: MColors.line),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(13),
+                    borderSide: const BorderSide(color: MColors.terra),
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _FilterChip(
+                    _FeedbackFilterChip(
                       label: 'All',
                       count: open.length,
                       selected: state.feedbackFilter == FeedbackFilter.all,
@@ -627,7 +707,8 @@ class _FeedbackList extends StatelessWidget {
                         const ChangeFeedbackFilter(FeedbackFilter.all),
                       ),
                     ),
-                    _FilterChip(
+                    const SizedBox(width: 8),
+                    _FeedbackFilterChip(
                       label: 'Overdue',
                       count: overdue.length,
                       dot: MColors.live,
@@ -636,7 +717,8 @@ class _FeedbackList extends StatelessWidget {
                         const ChangeFeedbackFilter(FeedbackFilter.overdue),
                       ),
                     ),
-                    _FilterChip(
+                    const SizedBox(width: 8),
+                    _FeedbackFilterChip(
                       label: 'Due soon',
                       count: soon.length,
                       dot: MColors.gold,
@@ -648,7 +730,6 @@ class _FeedbackList extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
               if (visible.isEmpty)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 24),
@@ -659,80 +740,66 @@ class _FeedbackList extends StatelessWidget {
                     ),
                   ),
                 )
-              else ...[
-                if (state.feedbackFilter == FeedbackFilter.all &&
-                    state.searchQuery.isEmpty) ...[
-                  _GroupRows(
+              else if (grouped) ...[
+                if (overdue.isNotEmpty) ...[
+                  const _FeedbackGroupHeader(
                     label: 'Overdue',
-                    count: overdue.length,
                     color: MColors.live,
-                    rows: visible
-                        .where((item) => item.missedMonths > 0)
-                        .toList(),
+                  ),
+                  _FeedbackRows(
+                    members: overdue,
                     today: data.today,
                     bloc: bloc,
                   ),
-                  _GroupRows(
+                ],
+                if (soon.isNotEmpty) ...[
+                  const _FeedbackGroupHeader(
                     label: 'Due soon',
-                    count: soon.length,
                     color: MColors.gold,
-                    rows: visible
-                        .where(
-                          (item) =>
-                              item.missedMonths == 0 &&
-                              _daysUntil(data.today, item.next) <= 4,
-                        )
-                        .toList(),
-                    today: data.today,
-                    bloc: bloc,
                   ),
-                  _GroupRows(
+                  _FeedbackRows(members: soon, today: data.today, bloc: bloc),
+                ],
+                if (later.isNotEmpty) ...[
+                  const _FeedbackGroupHeader(
                     label: 'Later this cycle',
-                    count: visible
-                        .where(
-                          (item) =>
-                              item.missedMonths == 0 &&
-                              _daysUntil(data.today, item.next) > 4,
-                        )
-                        .length,
                     color: MColors.inkFaint,
-                    rows: visible
-                        .where(
-                          (item) =>
-                              item.missedMonths == 0 &&
-                              _daysUntil(data.today, item.next) > 4,
-                        )
-                        .toList(),
-                    today: data.today,
-                    bloc: bloc,
                   ),
-                ] else
-                  _RowsCard(rows: visible, today: data.today, bloc: bloc),
-              ],
-              if (given.isNotEmpty) ...[
+                  _FeedbackRows(members: later, today: data.today, bloc: bloc),
+                ],
+              ] else
+                _FeedbackRows(members: visible, today: data.today, bloc: bloc),
+              if (completed.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 PressableCard(
                   color: const Color(0xFFEFE7DA),
-                  borderColor: Colors.transparent,
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
                   onTap: () => bloc.add(const ToggleGivenFeedback()),
                   child: Row(
                     children: [
-                      const IconBox(
-                        icon: Icons.check_rounded,
-                        color: Colors.white,
-                        tint: MColors.sage,
-                        size: 22,
-                        iconSize: 14,
+                      Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: MColors.sageDeep,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Icon(
+                          Icons.check_rounded,
+                          size: 14,
+                          color: Colors.white,
+                        ),
                       ),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 9),
                       Expanded(
                         child: Text(
-                          '${given.length} given this cycle',
+                          '${completed.length} given this cycle',
                           style: const TextStyle(
                             color: MColors.inkSoft,
-                            fontWeight: FontWeight.w800,
                             fontSize: 14.5,
+                            fontWeight: FontWeight.w800,
                           ),
                         ),
                       ),
@@ -747,13 +814,706 @@ class _FeedbackList extends StatelessWidget {
                 ),
                 if (state.showGiven) ...[
                   const SizedBox(height: 10),
-                  _GivenRows(rows: given),
+                  _GivenFeedbackRows(members: completed, bloc: bloc),
                 ],
               ],
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _FeedbackStat extends StatelessWidget {
+  const _FeedbackStat({
+    required this.value,
+    required this.label,
+    required this.color,
+  });
+  final int value;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(15),
+      border: Border.all(color: const Color(0xFFF0E8DD)),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$value',
+          style: TextStyle(
+            color: color,
+            fontSize: 23,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 1),
+        Text(
+          label,
+          style: const TextStyle(
+            color: MColors.inkSoft,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _FeedbackFilterChip extends StatelessWidget {
+  const _FeedbackFilterChip({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+    this.dot,
+  });
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+  final Color? dot;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(99),
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+      decoration: BoxDecoration(
+        color: selected ? MColors.ink : Colors.white,
+        borderRadius: BorderRadius.circular(99),
+        border: Border.all(color: selected ? MColors.ink : MColors.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (dot != null) ...[
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              color: selected ? Colors.white : MColors.inkSoft,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '$count',
+            style: TextStyle(
+              color: selected ? Colors.white70 : MColors.inkFaint,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _FeedbackGroupHeader extends StatelessWidget {
+  const _FeedbackGroupHeader({required this.label, required this.color});
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(6, 18, 6, 8),
+    child: Row(
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            color: MColors.inkSoft,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            letterSpacing: .6,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _FeedbackRows extends StatelessWidget {
+  const _FeedbackRows({
+    required this.members,
+    required this.today,
+    required this.bloc,
+  });
+  final List<TeamMember> members;
+  final DateTime today;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFF0E8DD)),
+      boxShadow: const [
+        BoxShadow(
+          color: Color(0x0D462D1C),
+          blurRadius: 26,
+          offset: Offset(0, 12),
+        ),
+      ],
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: members.indexed.map((entry) {
+        final member = entry.$2;
+        final overdue =
+            member.missedMonths > 0 || member.status == FeedbackStatus.missed;
+        final days = _daysUntil(today, member.next);
+        final due = overdue
+            ? 'Missed ${member.missedMonths == 0 ? 1 : member.missedMonths}mo'
+            : days == 0
+            ? 'Due today'
+            : days == 1
+            ? 'Due tomorrow'
+            : days > 1 && days <= 4
+            ? 'Due in ${days}d'
+            : null;
+        return InkWell(
+          onTap: () => bloc.add(OpenFeedbackRecord(member.id)),
+          child: Container(
+            color: overdue ? const Color(0xFFFBF2E8) : Colors.transparent,
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+            decoration: entry.$1 == 0
+                ? null
+                : const BoxDecoration(
+                    border: Border(top: BorderSide(color: Color(0xFFF4ECE0))),
+                  ),
+            child: Row(
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: const Color(0xFFD2C6B4),
+                      width: 2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                AvatarBadge(
+                  initial: member.initial,
+                  index: member.avatarIndex,
+                  size: 34,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        member.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: MColors.ink,
+                          fontSize: 15.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 1),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: member.team),
+                            if (due != null)
+                              TextSpan(
+                                text: ' · $due',
+                                style: TextStyle(
+                                  color: overdue ? MColors.live : MColors.gold,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                          ],
+                        ),
+                        style: const TextStyle(
+                          color: MColors.inkSoft,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  size: 19,
+                  color: Color(0xFFC9BDAC),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    ),
+  );
+}
+
+class _GivenFeedbackRows extends StatelessWidget {
+  const _GivenFeedbackRows({required this.members, required this.bloc});
+  final List<TeamMember> members;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: const Color(0xFFF0E8DD)),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: Column(
+      children: members.indexed.map((entry) {
+        final member = entry.$2;
+        return InkWell(
+          onTap: () => bloc.add(OpenFeedbackRecord(member.id)),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+            decoration: entry.$1 == 0
+                ? null
+                : const BoxDecoration(
+                    border: Border(top: BorderSide(color: Color(0xFFF4ECE0))),
+                  ),
+            child: Row(
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: MColors.sageDeep,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Icon(
+                    Icons.check_rounded,
+                    size: 13,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Opacity(
+                  opacity: .55,
+                  child: AvatarBadge(
+                    initial: member.initial,
+                    index: member.avatarIndex,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    member.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MColors.inkFaint,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      decoration: TextDecoration.lineThrough,
+                    ),
+                  ),
+                ),
+                Text(
+                  member.score.toStringAsFixed(1),
+                  style: TextStyle(
+                    color: scoreColor(member.score),
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    ),
+  );
+}
+
+// Kept for the legacy report-card layout used by older manager builds.
+// ignore: unused_element
+class _FeedbackAnchorBanner extends StatelessWidget {
+  const _FeedbackAnchorBanner({required this.month, required this.sessions});
+
+  final String month;
+  final int sessions;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: MColors.terraTint,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const IconBox(
+            icon: Icons.edit_calendar_rounded,
+            color: MColors.terra,
+            tint: Colors.white,
+            size: 44,
+            iconSize: 23,
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$month cycle · $sessions sessions allocated',
+                  style: const TextStyle(
+                    color: MColors.terraDeep,
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                const Text(
+                  'Anchor: 5th · Auto-closes 35 days after if unsent',
+                  style: TextStyle(
+                    color: MColors.terraDeep,
+                    fontSize: 13,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
+class _FeedbackSectionHead extends StatelessWidget {
+  const _FeedbackSectionHead({
+    required this.label,
+    required this.count,
+    required this.color,
+  });
+
+  final String label;
+  final int count;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Row(
+        children: [
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              letterSpacing: .9,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ignore: unused_element
+class _FeedbackReportCard extends StatelessWidget {
+  const _FeedbackReportCard({
+    required this.member,
+    required this.today,
+    required this.showDue,
+    required this.onTap,
+  });
+
+  final TeamMember member;
+  final DateTime today;
+  final bool showDue;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final done = member.params.where((item) => item.score > 0).length;
+    final total = member.params.length;
+    final started = member.status != FeedbackStatus.pending || done > 0;
+    final note = member.params
+        .map((item) => item.note.trim())
+        .firstWhere((item) => item.isNotEmpty, orElse: () => '');
+    final (status, statusColor) = switch (member.status) {
+      FeedbackStatus.pending => ('Not started', MColors.inkFaint),
+      FeedbackStatus.saved => ('Ready to send', MColors.gold),
+      FeedbackStatus.sent => ('Sent', MColors.sageDeep),
+      FeedbackStatus.missed => ('Missed', MColors.live),
+    };
+
+    return PressableCard(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          AvatarBadge(
+            initial: member.initial,
+            index: member.avatarIndex,
+            size: 54,
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        member.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: MColors.ink,
+                          fontSize: 17.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -.2,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (showDue)
+                      _FeedbackDueChip(today: today, date: member.next)
+                    else
+                      Text(
+                        shortDate(member.next),
+                        style: const TextStyle(
+                          color: MColors.inkFaint,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 9),
+                Row(
+                  children: [
+                    if (showDue)
+                      _FeedbackProgressMeter(done: done, total: total)
+                    else
+                      _FeedbackScoreRing(score: member.score),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        status,
+                        style: TextStyle(
+                          color: statusColor,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                Text(
+                  started
+                      ? (note.isEmpty ? 'Scores recorded — add notes.' : note)
+                      : 'Tap to start this month’s feedback',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: started ? MColors.inkSoft : MColors.inkFaint,
+                    fontSize: 13.5,
+                    height: 1.42,
+                    fontStyle: started ? FontStyle.normal : FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(
+            Icons.chevron_right_rounded,
+            size: 24,
+            color: MColors.inkFaint,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedbackDueChip extends StatelessWidget {
+  const _FeedbackDueChip({required this.today, required this.date});
+
+  final DateTime today;
+  final DateTime date;
+
+  @override
+  Widget build(BuildContext context) {
+    final days = _daysUntil(today, date);
+    final urgent = days <= 7;
+    final soon = days > 7 && days <= 14;
+    final color = urgent
+        ? MColors.live
+        : soon
+        ? MColors.gold
+        : MColors.inkSoft;
+    final tint = urgent
+        ? const Color(0xFFFBE6E3)
+        : soon
+        ? MColors.goldTint
+        : const Color(0xFFEFEAE2);
+    final label = days < 0
+        ? 'Closed'
+        : days == 0
+        ? 'Due today'
+        : 'Due in ${days}d';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.schedule_rounded, size: 12, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 11.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FeedbackProgressMeter extends StatelessWidget {
+  const _FeedbackProgressMeter({required this.done, required this.total});
+
+  final int done;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final complete = total > 0 && done == total;
+    final color = complete
+        ? MColors.sageDeep
+        : done == 0
+        ? MColors.inkFaint
+        : MColors.gold;
+    final progress = total == 0 ? 0.0 : done / total;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 72,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              minHeight: 7,
+              value: progress,
+              color: color,
+              backgroundColor: MColors.line,
+            ),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Text(
+          '$done/$total scored',
+          style: TextStyle(
+            color: color,
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _FeedbackScoreRing extends StatelessWidget {
+  const _FeedbackScoreRing({required this.score});
+
+  final double score;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = scoreColor(score <= 0 ? 1 : score);
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 38,
+            height: 38,
+            child: CircularProgressIndicator(
+              value: (score / 5).clamp(0.0, 1.0),
+              strokeWidth: 4,
+              color: color,
+              backgroundColor: MColors.line,
+              strokeCap: StrokeCap.round,
+            ),
+          ),
+          Text(
+            score.toStringAsFixed(1),
+            style: TextStyle(
+              color: color,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -830,8 +1590,622 @@ class _OwnLeaveCard extends StatelessWidget {
   }
 }
 
-class _RecordFeedback extends StatelessWidget {
+class _RecordFeedback extends StatefulWidget {
   const _RecordFeedback({required this.state, required this.bloc});
+
+  final ManagerState state;
+  final ManagerBloc bloc;
+
+  @override
+  State<_RecordFeedback> createState() => _RecordFeedbackState();
+}
+
+class _RecordFeedbackState extends State<_RecordFeedback> {
+  late final PageController _pageController;
+  int _tab = 0;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(viewportFraction: .88);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = widget.state;
+    final bloc = widget.bloc;
+    final member = state.selectedMember;
+    if (member == null) return const SizedBox.shrink();
+
+    final locked =
+        member.status == FeedbackStatus.sent ||
+        member.status == FeedbackStatus.missed;
+    final complete =
+        state.recordParams.isNotEmpty &&
+        state.recordParams.every((item) => item.score > 0);
+    final scored = state.recordParams.where((item) => item.score > 0).toList();
+    final overall = scored.isEmpty
+        ? 0.0
+        : scored.fold<double>(0, (sum, item) => sum + item.score) /
+              state.recordParams.length;
+    final overallColor = scoreColor(overall <= 0 ? 1 : overall);
+
+    return ColoredBox(
+      key: const ValueKey('record-feedback'),
+      color: MColors.bg,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      RoundIconButton(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: () => bloc.add(const CloseFeedbackRecord()),
+                      ),
+                      const SizedBox(width: 12),
+                      AvatarBadge(
+                        initial: member.initial,
+                        index: member.avatarIndex,
+                        size: 42,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              member.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: MColors.ink,
+                                fontSize: 21,
+                                height: 1.1,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -.3,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${member.team} · 1-on-1',
+                              style: const TextStyle(
+                                color: MColors.inkSoft,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  _FeedbackModeSwitch(
+                    selected: _tab,
+                    onChanged: (value) => setState(() => _tab = value),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: _tab == 0
+                  ? Column(
+                      children: [
+                        const SizedBox(height: 17),
+                        const Text(
+                          'OVERALL SCORE',
+                          style: TextStyle(
+                            color: MColors.inkFaint,
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          width: 88,
+                          height: 88,
+                          decoration: BoxDecoration(
+                            color: overall == 0
+                                ? const Color(0xFFD9CDBC)
+                                : overallColor,
+                            shape: BoxShape.circle,
+                          ),
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                overall == 0 ? '—' : overall.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 34,
+                                  height: .95,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const Text(
+                                'out of 5',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Expanded(
+                          child: state.recordParams.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No feedback parameters configured.',
+                                    style: TextStyle(color: MColors.inkSoft),
+                                  ),
+                                )
+                              : PageView.builder(
+                                  controller: _pageController,
+                                  itemCount: state.recordParams.length,
+                                  onPageChanged: (value) =>
+                                      setState(() => _page = value),
+                                  itemBuilder: (context, index) => Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 3,
+                                    ),
+                                    child: _ParamCard(
+                                      param: state.recordParams[index],
+                                      locked: locked,
+                                      onScore: (value) => bloc.add(
+                                        UpdateFeedbackScore(index, value),
+                                      ),
+                                      onNote: (value) => bloc.add(
+                                        UpdateFeedbackNote(index, value),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                        ),
+                        if (state.recordParams.length > 1)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8, bottom: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: List.generate(
+                                state.recordParams.length,
+                                (index) => AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  width: index == _page ? 18 : 6,
+                                  height: 6,
+                                  margin: const EdgeInsets.symmetric(
+                                    horizontal: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: index == _page
+                                        ? MColors.terra
+                                        : const Color(0xFFD9CDBC),
+                                    borderRadius: BorderRadius.circular(99),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (!locked)
+                          SafeArea(
+                            top: false,
+                            bottom: false,
+                            child: Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                16,
+                                10,
+                                16,
+                                14,
+                              ),
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                border: Border(
+                                  top: BorderSide(color: MColors.line),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: ActionButton(
+                                      label: 'Save',
+                                      icon: Icons.save_outlined,
+                                      background: Colors.white,
+                                      foreground: MColors.ink,
+                                      border: MColors.line,
+                                      onTap: () =>
+                                          bloc.add(const SaveFeedback()),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    flex: 2,
+                                    child: ActionButton(
+                                      label:
+                                          'Send to ${member.name.split(' ').first}',
+                                      icon: Icons.send_rounded,
+                                      background: complete
+                                          ? MColors.terra
+                                          : MColors.line,
+                                      foreground: complete
+                                          ? Colors.white
+                                          : MColors.inkFaint,
+                                      onTap: complete
+                                          ? () => _confirmSend(
+                                              context,
+                                              bloc,
+                                              member,
+                                            )
+                                          : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    )
+                  : _PastFeedbackTab(member: member),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _confirmSend(BuildContext context, ManagerBloc bloc, TeamMember member) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _ConfirmSendSheet(
+        member: member,
+        onSend: () {
+          Navigator.of(context).pop();
+          bloc.add(const SendFeedback());
+        },
+      ),
+    );
+  }
+}
+
+class _FeedbackModeSwitch extends StatelessWidget {
+  const _FeedbackModeSwitch({required this.selected, required this.onChanged});
+
+  final int selected;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(4),
+    decoration: BoxDecoration(
+      color: const Color(0xFFEAE0D2),
+      borderRadius: BorderRadius.circular(13),
+    ),
+    child: Row(
+      children: List.generate(2, (index) {
+        final active = selected == index;
+        return Expanded(
+          child: InkWell(
+            onTap: () => onChanged(index),
+            borderRadius: BorderRadius.circular(11),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.symmetric(vertical: 9),
+              decoration: BoxDecoration(
+                color: active ? Colors.white : Colors.transparent,
+                borderRadius: BorderRadius.circular(11),
+                boxShadow: active
+                    ? const [
+                        BoxShadow(
+                          color: Color(0x1F462D1C),
+                          blurRadius: 3,
+                          offset: Offset(0, 1),
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Text(
+                index == 0 ? 'Give feedback' : 'Past feedback',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: active ? MColors.ink : MColors.inkSoft,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+}
+
+class _PastFeedbackTab extends StatelessWidget {
+  const _PastFeedbackTab({required this.member});
+
+  final TeamMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final scored = member.params.where((item) => item.score > 0).toList();
+    final overall = scored.isEmpty
+        ? member.score
+        : scored.fold<double>(0, (sum, item) => sum + item.score) /
+              scored.length;
+    final color = scoreColor(overall <= 0 ? 1 : overall);
+    final hasFeedback =
+        member.status == FeedbackStatus.sent || scored.isNotEmpty;
+
+    if (!hasFeedback) {
+      return const SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 16, 20, 30),
+        child: _EmptyPastFeedback(),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: MColors.line),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Row(
+                children: [
+                  Text(
+                    'TREND',
+                    style: TextStyle(
+                      color: MColors.inkFaint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  SizedBox(width: 8),
+                  Text(
+                    'overall, month by month',
+                    style: TextStyle(color: MColors.inkSoft, fontSize: 13),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    overall.toStringAsFixed(1),
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 42,
+                      height: .9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      '/5',
+                      style: TextStyle(
+                        color: MColors.inkFaint,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 11,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDEEBE9),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(
+                          Icons.trending_up_rounded,
+                          size: 16,
+                          color: MColors.teal,
+                        ),
+                        SizedBox(width: 5),
+                        Text(
+                          'Latest',
+                          style: TextStyle(
+                            color: MColors.teal,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: LinearProgressIndicator(
+                  value: (overall / 5).clamp(0.0, 1.0),
+                  minHeight: 8,
+                  color: color,
+                  backgroundColor: MColors.line,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _showMonth(context, member, overall, color),
+          child: _PastFeedbackMonthCard(
+            member: member,
+            overall: overall,
+            color: color,
+            showChevron: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Full history is retained ✦',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: MColors.inkFaint, fontSize: 12),
+        ),
+      ],
+    );
+  }
+
+  void _showMonth(
+    BuildContext context,
+    TeamMember member,
+    double overall,
+    Color color,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * .78,
+        ),
+        decoration: const BoxDecoration(
+          color: MColors.bg,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 42,
+                height: 4,
+                margin: const EdgeInsets.only(top: 10, bottom: 16),
+                decoration: BoxDecoration(
+                  color: MColors.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${_monthName(member.next.month)} ${member.next.year}',
+                        style: const TextStyle(
+                          color: MColors.ink,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${overall.toStringAsFixed(1)}/5',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                  children: member.params
+                      .where((item) => item.score > 0)
+                      .map(
+                        (item) => Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: MColors.line),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      item.name,
+                                      style: const TextStyle(
+                                        color: MColors.ink,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${item.score.toStringAsFixed(1)}/5',
+                                    style: TextStyle(
+                                      color: scoreColor(item.score),
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (item.note.isNotEmpty) ...[
+                                const SizedBox(height: 9),
+                                Text(
+                                  item.note,
+                                  style: const TextStyle(
+                                    color: MColors.inkSoft,
+                                    fontSize: 13.5,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Retained temporarily while older deep links are migrated to the tabbed flow.
+// ignore: unused_element
+class _LegacyRecordFeedback extends StatelessWidget {
+  const _LegacyRecordFeedback({required this.state, required this.bloc});
 
   final ManagerState state;
   final ManagerBloc bloc;
@@ -959,6 +2333,11 @@ class _RecordFeedback extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   PressableCard(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _PastFeedbackScreen(member: member),
+                      ),
+                    ),
                     padding: const EdgeInsets.all(12),
                     child: Row(
                       children: [
@@ -1117,6 +2496,7 @@ class _RecordFeedback extends StatelessWidget {
             bottom: 0,
             child: SafeArea(
               top: false,
+              bottom: false,
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
                 decoration: const BoxDecoration(
@@ -1172,6 +2552,405 @@ class _RecordFeedback extends StatelessWidget {
       },
     );
   }
+}
+
+class _PastFeedbackScreen extends StatelessWidget {
+  const _PastFeedbackScreen({required this.member});
+
+  final TeamMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    final scored = member.params.where((item) => item.score > 0).toList();
+    final overall = scored.isEmpty
+        ? member.score
+        : scored.fold<double>(0, (sum, item) => sum + item.score) /
+              scored.length;
+    final color = scoreColor(overall <= 0 ? 1 : overall);
+    final hasFeedback =
+        member.status == FeedbackStatus.sent || scored.isNotEmpty;
+
+    return Scaffold(
+      backgroundColor: MColors.bg,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      RoundIconButton(
+                        icon: Icons.chevron_left_rounded,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                      const SizedBox(width: 12),
+                      AvatarBadge(
+                        initial: member.initial,
+                        index: member.avatarIndex,
+                        size: 42,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              member.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: MColors.ink,
+                                fontSize: 21,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -.3,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${member.team} · 1-on-1',
+                              style: const TextStyle(
+                                color: MColors.inkSoft,
+                                fontSize: 13.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEAE0D2),
+                      borderRadius: BorderRadius.circular(13),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => Navigator.of(context).pop(),
+                            borderRadius: BorderRadius.circular(11),
+                            child: const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 9),
+                              child: Text(
+                                'Give feedback',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: MColors.inkSoft,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 9),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x1F462D1C),
+                                  blurRadius: 3,
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                            child: const Text(
+                              'Past feedback',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: MColors.ink,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
+                children: [
+                  if (!hasFeedback)
+                    const _EmptyPastFeedback()
+                  else ...[
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: MColors.line),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Text(
+                                'TREND',
+                                style: TextStyle(
+                                  color: MColors.inkFaint,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.2,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Text(
+                                'overall, month by month',
+                                style: TextStyle(
+                                  color: MColors.inkSoft,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                overall.toStringAsFixed(1),
+                                style: TextStyle(
+                                  color: color,
+                                  fontSize: 42,
+                                  height: .9,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(bottom: 2),
+                                child: Text(
+                                  '/5',
+                                  style: TextStyle(
+                                    color: MColors.inkFaint,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 11,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDEEBE9),
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.trending_up_rounded,
+                                      size: 16,
+                                      color: MColors.teal,
+                                    ),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      'Latest',
+                                      style: TextStyle(
+                                        color: MColors.teal,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(99),
+                            child: LinearProgressIndicator(
+                              value: (overall / 5).clamp(0.0, 1.0),
+                              minHeight: 8,
+                              color: color,
+                              backgroundColor: MColors.line,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    _PastFeedbackMonthCard(
+                      member: member,
+                      overall: overall,
+                      color: color,
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Full history is retained ✦',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: MColors.inkFaint, fontSize: 12),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyPastFeedback extends StatelessWidget {
+  const _EmptyPastFeedback();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 96),
+    child: Column(
+      children: [
+        const Icon(Icons.show_chart_rounded, size: 42, color: MColors.inkFaint),
+        const SizedBox(height: 14),
+        const Text(
+          'No past feedback yet',
+          style: TextStyle(
+            color: MColors.ink,
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Sent feedback will build this journey over time.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+        ),
+      ],
+    ),
+  );
+}
+
+class _PastFeedbackMonthCard extends StatelessWidget {
+  const _PastFeedbackMonthCard({
+    required this.member,
+    required this.overall,
+    required this.color,
+    this.showChevron = false,
+  });
+
+  final TeamMember member;
+  final double overall;
+  final Color color;
+  final bool showChevron;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: MColors.line),
+    ),
+    padding: const EdgeInsets.all(15),
+    child: Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_monthName(member.next.month)} ${member.next.year}',
+                    style: const TextStyle(
+                      color: MColors.ink,
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    overall >= 4
+                        ? 'Exceeds expectation'
+                        : overall >= 2.5
+                        ? 'Meets expectation'
+                        : 'Needs work',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Text(
+              overall.toStringAsFixed(1),
+              style: TextStyle(
+                color: color,
+                fontSize: 22,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Text(
+              '/5',
+              style: TextStyle(
+                color: MColors.inkFaint,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            if (showChevron) ...[
+              const SizedBox(width: 5),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: MColors.inkFaint,
+                size: 20,
+              ),
+            ],
+          ],
+        ),
+        if (member.params.isNotEmpty) ...[
+          const Divider(height: 24, color: MColors.line),
+          ...member.params
+              .where((item) => item.score > 0)
+              .map(
+                (item) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          item.name,
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        item.score.toStringAsFixed(1),
+                        style: TextStyle(
+                          color: scoreColor(item.score),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+        ],
+      ],
+    ),
+  );
 }
 
 // Kept as a reusable surface for a future standalone attendance route.
@@ -4146,281 +5925,6 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
   }
 }
 
-class _GroupRows extends StatelessWidget {
-  const _GroupRows({
-    required this.label,
-    required this.count,
-    required this.color,
-    required this.rows,
-    required this.today,
-    required this.bloc,
-  });
-
-  final String label;
-  final int count;
-  final Color color;
-  final List<TeamMember> rows;
-  final DateTime today;
-  final ManagerBloc bloc;
-
-  @override
-  Widget build(BuildContext context) {
-    if (rows.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(6, 18, 6, 8),
-          child: Row(
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                label.toUpperCase(),
-                style: const TextStyle(
-                  color: MColors.inkSoft,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: .6,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '$count',
-                style: const TextStyle(
-                  color: MColors.inkFaint,
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-        _RowsCard(rows: rows, today: today, bloc: bloc),
-      ],
-    );
-  }
-}
-
-class _RowsCard extends StatelessWidget {
-  const _RowsCard({
-    required this.rows,
-    required this.today,
-    required this.bloc,
-  });
-
-  final List<TeamMember> rows;
-  final DateTime today;
-  final ManagerBloc bloc;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: MColors.line),
-        ),
-        child: Column(
-          children: rows.indexed.map((entry) {
-            return _TeamRow(
-              member: entry.$2,
-              today: today,
-              first: entry.$1 == 0,
-              onTap: () => bloc.add(OpenFeedbackRecord(entry.$2.id)),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
-class _TeamRow extends StatelessWidget {
-  const _TeamRow({
-    required this.member,
-    required this.today,
-    required this.first,
-    required this.onTap,
-  });
-
-  final TeamMember member;
-  final DateTime today;
-  final bool first;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final overdue = member.missedMonths > 0;
-    final due = _daysUntil(today, member.next);
-    final soon = !overdue && due >= 0 && due <= 4;
-    return Material(
-      color: overdue ? const Color(0xFFFBF2E8) : Colors.white,
-      child: InkWell(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-          decoration: BoxDecoration(
-            border: first
-                ? null
-                : const Border(top: BorderSide(color: Color(0xFFF4ECE0))),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFD2C6B4), width: 2),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-              ),
-              const SizedBox(width: 12),
-              AvatarBadge(
-                initial: member.initial,
-                index: member.avatarIndex,
-                size: 34,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      member.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: MColors.ink,
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 1),
-                    RichText(
-                      text: TextSpan(
-                        style: const TextStyle(
-                          fontFamily: 'Plus Jakarta Sans',
-                          color: MColors.inkSoft,
-                          fontSize: 12,
-                        ),
-                        children: [
-                          TextSpan(text: member.team),
-                          if (overdue)
-                            TextSpan(
-                              text: ' · Missed ${member.missedMonths}mo',
-                              style: const TextStyle(
-                                color: MColors.live,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          if (soon)
-                            TextSpan(
-                              text: due == 0
-                                  ? ' · Due today'
-                                  : due == 1
-                                  ? ' · Due tomorrow'
-                                  : ' · Due in ${due}d',
-                              style: const TextStyle(
-                                color: MColors.gold,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right_rounded, color: Color(0xFFC9BDAC)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _GivenRows extends StatelessWidget {
-  const _GivenRows({required this.rows});
-
-  final List<TeamMember> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: MColors.line),
-        ),
-        child: Column(
-          children: rows.indexed.map((entry) {
-            final member = entry.$2;
-            return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
-              decoration: BoxDecoration(
-                border: entry.$1 == 0
-                    ? null
-                    : const Border(top: BorderSide(color: Color(0xFFF4ECE0))),
-              ),
-              child: Row(
-                children: [
-                  const IconBox(
-                    icon: Icons.check_rounded,
-                    color: Colors.white,
-                    tint: MColors.sage,
-                    size: 22,
-                    iconSize: 13,
-                  ),
-                  const SizedBox(width: 12),
-                  Opacity(
-                    opacity: .55,
-                    child: AvatarBadge(
-                      initial: member.initial,
-                      index: member.avatarIndex,
-                      size: 32,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      member.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: MColors.inkFaint,
-                        decoration: TextDecoration.lineThrough,
-                        decorationColor: Color(0xFFCFC4B5),
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  Text(
-                    member.score.toStringAsFixed(1),
-                    style: TextStyle(
-                      color: scoreColor(member.score),
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-        ),
-      ),
-    );
-  }
-}
-
 class _ParamCard extends StatefulWidget {
   const _ParamCard({
     required this.param,
@@ -5020,113 +6524,6 @@ class _ProgressBar extends StatelessWidget {
           widthFactor: value.clamp(0, 1),
           alignment: Alignment.centerLeft,
           child: Container(color: color),
-        ),
-      ),
-    );
-  }
-}
-
-class _SearchBox extends StatelessWidget {
-  const _SearchBox({required this.value, required this.onChanged});
-
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return TextFormField(
-      initialValue: value,
-      onChanged: onChanged,
-      decoration: InputDecoration(
-        hintText: 'Find a teammate',
-        prefixIcon: const Icon(Icons.search_rounded, color: MColors.inkFaint),
-        suffixIcon: value.isEmpty
-            ? null
-            : IconButton(
-                icon: const Icon(Icons.close_rounded),
-                onPressed: () => onChanged(''),
-              ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          vertical: 11,
-          horizontal: 14,
-        ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: MColors.line),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: MColors.line),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(13),
-          borderSide: const BorderSide(color: MColors.terra, width: 1.5),
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-    this.dot,
-  });
-
-  final String label;
-  final int count;
-  final bool selected;
-  final VoidCallback onTap;
-  final Color? dot;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(99),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-          decoration: BoxDecoration(
-            color: selected ? MColors.ink : Colors.white,
-            borderRadius: BorderRadius.circular(99),
-            border: Border.all(color: selected ? MColors.ink : MColors.line),
-          ),
-          child: Row(
-            children: [
-              if (dot != null) ...[
-                Container(
-                  width: 7,
-                  height: 7,
-                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                label,
-                style: TextStyle(
-                  color: selected ? Colors.white : MColors.inkSoft,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '$count',
-                style: TextStyle(
-                  color: selected ? Colors.white70 : MColors.inkFaint,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
