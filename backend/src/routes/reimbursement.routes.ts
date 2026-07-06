@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   createReimbursement,
+  getReimbursementReceiptUrl,
   listMyReimbursements,
   listReimbursementInbox,
   updateReimbursementDecision,
@@ -13,4 +14,5 @@ reimbursementRouter.use(requireAuth);
 reimbursementRouter.post('/', uploadReimbursementReceipt, createReimbursement);
 reimbursementRouter.get('/mine', listMyReimbursements);
 reimbursementRouter.get('/inbox', listReimbursementInbox);
+reimbursementRouter.get('/:claimId/receipt-url', getReimbursementReceiptUrl);
 reimbursementRouter.patch('/:claimId/decision', updateReimbursementDecision);

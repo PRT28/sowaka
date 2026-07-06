@@ -61,6 +61,8 @@ function useProvideStore() {
   const [rbDrawerId, setRbDrawerId] = useState<string | null>(null);
   const [rbDeclineId, setRbDeclineId] = useState<string | null>(null);
   const [rbDeclineText, setRbDeclineText] = useState('');
+  const [rbBillId, setRbBillId] = useState<string | null>(null);
+  const [rbConfirm, setRbConfirm] = useState<{ id: string; action: 'approve' | 'decline' } | null>(null);
 
   // overtime
   const [ots, setOts] = useState<Overtime[]>([]);
@@ -181,6 +183,7 @@ function useProvideStore() {
     const r = rbs.find((x) => x.id === id);
     setRbDrawerId(null);
     setRbDeclineId(null);
+    setRbConfirm(null);
     try {
       const updated = await decideReimb(id, 'approved');
       setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, managerName) : x)));
@@ -202,6 +205,7 @@ function useProvideStore() {
     setRbDeclineId(null);
     setRbDeclineText('');
     setRbDrawerId(null);
+    setRbConfirm(null);
     try {
       const updated = await decideReimb(id, 'declined');
       setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, managerName) : x)));
@@ -210,6 +214,12 @@ function useProvideStore() {
       handleError(e);
     }
   };
+  // open a confirmation screen before deciding a claim
+  const rbAsk = (id: string, action: 'approve' | 'decline') => {
+    if (action === 'decline') setRbDeclineText('');
+    setRbConfirm({ id, action });
+  };
+  const rbCloseConfirm = () => setRbConfirm(null);
 
   // ---- feedback reminders (client-side — no backend reminder endpoint) ----
   const remindMgr = (id: string) => {
@@ -312,6 +322,7 @@ function useProvideStore() {
     rbs, rbSearch, setRbSearch, rbStatus, setRbStatus, rbType, setRbType, rbSort, setRbSort,
     rbDrawerId, setRbDrawerId, rbDeclineId, rbDeclineText, setRbDeclineText,
     rbApprove, rbOpenDecline, rbCancelDecline, rbConfirmDecline,
+    rbBillId, setRbBillId, rbConfirm, rbAsk, rbCloseConfirm,
     // overtime
     ots, otSearch, setOtSearch, otStatus, setOtStatus, otDrawerId, setOtDrawerId,
     otDeclineId, otDeclineText, setOtDeclineText,

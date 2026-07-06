@@ -27,6 +27,7 @@ export const env = {
     receiptPrefix: process.env.AWS_S3_RECEIPT_PREFIX ?? 'reimbursements/receipts',
     serverSideEncryption: process.env.AWS_S3_SERVER_SIDE_ENCRYPTION ?? 'AES256',
     kmsKeyId: process.env.AWS_S3_KMS_KEY_ID ?? '',
+    presignTtl: Number(process.env.AWS_S3_PRESIGN_TTL ?? 300),
   },
   zohoSmtp: {
     host: process.env.ZOHO_SMTP_HOST ?? 'smtp.zoho.com',

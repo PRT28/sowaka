@@ -2,7 +2,7 @@ import { useStore } from '../store';
 import { STAT } from '../theme';
 import type { ReqStatus } from '../theme';
 import { Avatar, Card, EmptyRow, Pill, SearchInput, SelectBox, StatusTabs, SummaryCard } from '../ui';
-import { IconCheck, IconDownload, IconEye, IconX } from '../icons';
+import { IconCheck, IconDownload, IconEye, IconFile, IconX } from '../icons';
 
 const COLS = '1.7fr 1.1fr 1fr 1fr 1fr 1.3fr 1fr 1.1fr';
 
@@ -81,7 +81,6 @@ export function Reimbursements() {
         </div>
         {rows.map((r) => {
           const pending = r.status === 'Pending';
-          const declineOpen = s.rbDeclineId === r.id;
           return (
             <div
               key={r.id}
@@ -105,37 +104,24 @@ export function Reimbursements() {
                 <Pill label={r.status} tone={STAT[r.status]} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => s.setRbBillId(r.id)} title="View bill" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <IconFile />
+                </button>
                 {pending ? (
                   <>
-                    <button onClick={() => s.rbOpenDecline(r.id)} title="Decline" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EBD9DE', background: '#FBF1F3', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => s.rbAsk(r.id, 'decline')} title="Decline" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EBD9DE', background: '#FBF1F3', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <IconX />
                     </button>
-                    <button onClick={() => s.rbApprove(r.id)} title="Approve" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #D7E2D2', background: '#EDF3E9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => s.rbAsk(r.id, 'approve')} title="Approve" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #D7E2D2', background: '#EDF3E9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <IconCheck />
                     </button>
                   </>
                 ) : (
-                  <button onClick={() => s.setRbDrawerId(r.id)} title="View" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <button onClick={() => s.setRbDrawerId(r.id)} title="View details" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <IconEye />
                   </button>
                 )}
               </div>
-              {declineOpen && (
-                <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', right: 18, top: 54, zIndex: 40, width: 300, background: '#fff', border: '1px solid #EADFCF', borderRadius: 14, boxShadow: '0 16px 40px rgba(70,50,30,.18)', padding: 15, animation: 'pop .16s ease both' }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 3 }}>Decline {r.name.split(' ')[0]}'s claim</div>
-                  <div style={{ fontSize: 12, color: '#9B9082', fontWeight: 500, marginBottom: 10 }}>Add a remark so they know why.</div>
-                  <textarea
-                    value={s.rbDeclineText}
-                    onChange={(e) => s.setRbDeclineText(e.target.value)}
-                    placeholder="e.g. Out of budget — resubmit next quarter"
-                    style={{ width: '100%', height: 64, resize: 'none', border: '1px solid #EBE1D2', borderRadius: 10, padding: '9px 11px', fontSize: 12.5, outline: 'none', color: '#2A2420' }}
-                  />
-                  <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
-                    <button onClick={() => s.rbCancelDecline()} style={{ flex: 1, border: '1px solid #EBE1D2', background: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, color: '#6E6457', cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={() => s.rbConfirmDecline(r.id)} style={{ flex: 1, border: 'none', background: '#A8475F', color: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Decline</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}

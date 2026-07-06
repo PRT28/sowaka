@@ -67,6 +67,7 @@ export type Reimb = {
   applyDate: string;
   status: ReqStatus;
   bill: string;
+  hasBill?: boolean;
   ord: number;
   mRemark: string;
 };

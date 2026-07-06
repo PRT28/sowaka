@@ -4,6 +4,7 @@ import {
   decideReimbursement,
   getManagerReimbursementInbox,
   getMyReimbursementClaims,
+  getReceiptDownloadUrl,
   ReimbursementError,
 } from '../services/reimbursement.service';
 
@@ -58,6 +59,15 @@ export async function updateReimbursementDecision(req: Request, res: Response, n
       String(req.body.decision ?? ''),
     );
     res.status(200).json({ success: true, claim });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getReimbursementReceiptUrl(req: Request, res: Response, next: NextFunction) {
+  try {
+    const receipt = await getReceiptDownloadUrl(requireUserId(req), String(req.params.claimId ?? ''));
+    res.status(200).json({ success: true, receipt });
   } catch (error) {
     next(error);
   }
