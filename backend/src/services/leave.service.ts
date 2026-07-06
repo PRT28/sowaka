@@ -127,7 +127,12 @@ export async function getMyLeaveBalance(userId: string, year = new Date().getUTC
   const yearStart = new Date(Date.UTC(year, 0, 1));
   const yearEnd = new Date(Date.UTC(year, 11, 31));
   const approved = await leaves()
-    .find({ userId, status: 'approved', startDate: { $lte: yearEnd }, endDate: { $gte: yearStart } })
+    .find({
+      userId,
+      status: 'approved',
+      startDate: { $lte: yearEnd },
+      endDate: { $gte: yearStart },
+    })
     .toArray();
   const totals: Record<Leave['type'], number> = { sick: 12, casual: 12, earned: 18 };
   const used: Record<Leave['type'], number> = { sick: 0, casual: 0, earned: 0 };
@@ -204,6 +209,9 @@ export async function decideLeave(
   }
 
   const managerNote = input.managerNote?.trim();
+  if (decision === 'declined' && !managerNote) {
+    throw new LeaveError(400, 'A decline reason is required');
+  }
   if (managerNote && managerNote.length > 500) {
     throw new LeaveError(400, 'Manager note cannot exceed 500 characters');
   }

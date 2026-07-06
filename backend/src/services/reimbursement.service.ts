@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { reimbursementClaims, users } from '../config/db';
 import { ReimbursementClaim, ReimbursementStatus } from '../models/reimbursement.model';
 import { User } from '../models/user.model';
+import { deleteReimbursementReceipt, uploadReimbursementReceipt } from './s3-receipt.service';
 
 const categories = new Set<ReimbursementClaim['category']>([
   'travel',
@@ -18,6 +19,12 @@ export async function createReimbursementClaim(
     amount: unknown;
     category: string;
     receiptName?: string;
+    receipt?: {
+      originalName: string;
+      contentType: string;
+      size: number;
+      bytes: Buffer;
+    };
     note?: string;
   },
 ) {
@@ -32,11 +39,20 @@ export async function createReimbursementClaim(
   }
   const category = input.category.trim().toLowerCase() as ReimbursementClaim['category'];
   if (!categories.has(category)) throw new ReimbursementError(400, 'Expense category is invalid');
-  const receiptName = input.receiptName?.trim();
+  const receiptName = input.receipt?.originalName.trim() ?? input.receiptName?.trim();
   const note = input.note?.trim();
   if (receiptName && receiptName.length > 255)
     throw new ReimbursementError(400, 'Receipt name is too long');
   if (note && note.length > 500) throw new ReimbursementError(400, 'Note is too long');
+
+  let uploadedReceipt: { objectKey: string; contentType: string; size: number } | undefined;
+  if (input.receipt) {
+    try {
+      uploadedReceipt = await uploadReimbursementReceipt(userId, input.receipt);
+    } catch {
+      throw new ReimbursementError(503, 'Receipt storage is unavailable');
+    }
+  }
 
   const now = new Date();
   const claim: ReimbursementClaim = {
@@ -46,13 +62,23 @@ export async function createReimbursementClaim(
     amount: Math.round(amount * 100) / 100,
     category,
     receiptName,
+    receiptObjectKey: uploadedReceipt?.objectKey,
+    receiptContentType: uploadedReceipt?.contentType,
+    receiptSize: uploadedReceipt?.size,
     note,
     status: 'pending',
     createdAt: now,
     updatedAt: now,
   };
-  const result = await reimbursementClaims().insertOne(claim);
-  return toView({ ...claim, _id: result.insertedId }, employee);
+  try {
+    const result = await reimbursementClaims().insertOne(claim);
+    return toView({ ...claim, _id: result.insertedId }, employee);
+  } catch (error) {
+    if (uploadedReceipt) {
+      await deleteReimbursementReceipt(uploadedReceipt.objectKey).catch(() => undefined);
+    }
+    throw error;
+  }
 }
 
 export async function getMyReimbursementClaims(userId: string) {
@@ -129,6 +155,7 @@ function toView(claim: ReimbursementClaim & { _id: ObjectId }, employee: User) {
     amount: claim.amount,
     category: claim.category,
     receiptName: claim.receiptName,
+    hasReceipt: Boolean(claim.receiptObjectKey),
     note: claim.note,
     status: claim.status,
     createdAt: claim.createdAt.toISOString(),

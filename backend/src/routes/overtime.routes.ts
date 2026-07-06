@@ -13,4 +13,3 @@ overtimeRouter.post('/', createOvertime);
 overtimeRouter.get('/mine', listMyOvertime);
 overtimeRouter.get('/inbox', listOvertimeInbox);
 overtimeRouter.patch('/:overtimeId/decision', updateOvertimeDecision);
-

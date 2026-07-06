@@ -7,6 +7,9 @@ export interface ReimbursementClaim {
   amount: number;
   category: 'travel' | 'meals' | 'internet' | 'other';
   receiptName?: string;
+  receiptObjectKey?: string;
+  receiptContentType?: string;
+  receiptSize?: number;
   note?: string;
   status: ReimbursementStatus;
   decidedByUserId?: string;
@@ -15,4 +18,3 @@ export interface ReimbursementClaim {
   createdAt: Date;
   updatedAt: Date;
 }
-

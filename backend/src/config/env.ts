@@ -16,6 +16,18 @@ export const env = {
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
   authSessionTtlDays: Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30),
   hrAdminApiKey: process.env.HR_ADMIN_API_KEY ?? '',
+  s3: {
+    region: process.env.AWS_REGION ?? '',
+    bucket: process.env.AWS_S3_BUCKET ?? '',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    sessionToken: process.env.AWS_SESSION_TOKEN ?? '',
+    endpoint: process.env.AWS_S3_ENDPOINT ?? '',
+    forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
+    receiptPrefix: process.env.AWS_S3_RECEIPT_PREFIX ?? 'reimbursements/receipts',
+    serverSideEncryption: process.env.AWS_S3_SERVER_SIDE_ENCRYPTION ?? 'AES256',
+    kmsKeyId: process.env.AWS_S3_KMS_KEY_ID ?? '',
+  },
   zohoSmtp: {
     host: process.env.ZOHO_SMTP_HOST ?? 'smtp.zoho.com',
     port: Number(process.env.ZOHO_SMTP_PORT ?? 465),

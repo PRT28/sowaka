@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../../auth/data/auth_models.dart';
 import '../data/manager_api_service.dart';
@@ -147,14 +148,6 @@ class CloseOvertimeRequests extends ManagerEvent {
   const CloseOvertimeRequests();
 }
 
-class OpenReimbursementRequests extends ManagerEvent {
-  const OpenReimbursementRequests();
-}
-
-class CloseReimbursementRequests extends ManagerEvent {
-  const CloseReimbursementRequests();
-}
-
 class OpenFeedbackRecord extends ManagerEvent {
   const OpenFeedbackRecord(this.memberId);
   final int memberId;
@@ -204,21 +197,17 @@ class SendFeedback extends ManagerEvent {
 }
 
 class DecideLeave extends ManagerEvent {
-  const DecideLeave(this.leaveId, this.decision);
+  const DecideLeave(this.leaveId, this.decision, {this.managerNote = ''});
   final String leaveId;
   final LeaveDecision decision;
+  final String managerNote;
 }
 
 class DecideOvertime extends ManagerEvent {
-  const DecideOvertime(this.overtimeId, this.decision);
+  const DecideOvertime(this.overtimeId, this.decision, {this.managerNote = ''});
   final String overtimeId;
   final LeaveDecision decision;
-}
-
-class DecideReimbursement extends ManagerEvent {
-  const DecideReimbursement(this.claimId, this.decision);
-  final String claimId;
-  final String decision;
+  final String managerNote;
 }
 
 class OpenAwardPicker extends ManagerEvent {
@@ -277,12 +266,14 @@ class SubmitReimbursementApplication extends ManagerEvent {
     required this.amount,
     required this.category,
     required this.receiptName,
+    required this.receiptBytes,
     required this.note,
   });
   final DateTime expenseDate;
   final String amount;
   final String category;
   final String receiptName;
+  final Uint8List? receiptBytes;
   final String note;
 }
 
@@ -360,10 +351,6 @@ class ManagerBloc {
           _emit(_state.copyWith(view: ManagerView.overtimeRequests));
         case CloseOvertimeRequests():
           _emit(_state.copyWith(view: ManagerView.home));
-        case OpenReimbursementRequests():
-          _emit(_state.copyWith(view: ManagerView.reimbursementRequests));
-        case CloseReimbursementRequests():
-          _emit(_state.copyWith(view: ManagerView.home));
         case OpenFeedbackRecord(:final memberId):
           final member = _state.dashboard?.team
               .where((item) => item.id == memberId)
@@ -419,8 +406,12 @@ class ManagerBloc {
             FeedbackStatus.sent,
             member == null ? 'Sent' : 'Sent to ${member.name.split(' ').first}',
           );
-        case DecideLeave(:final leaveId, :final decision):
-          final updatedLeave = await _service.decideLeave(leaveId, decision);
+        case DecideLeave(:final leaveId, :final decision, :final managerNote):
+          final updatedLeave = await _service.decideLeave(
+            leaveId,
+            decision,
+            managerNote,
+          );
           final data = _state.dashboard;
           if (data == null) return false;
           final leaves = data.leaves.map((leave) {
@@ -434,10 +425,15 @@ class ManagerBloc {
                   : 'Leave declined',
             ),
           );
-        case DecideOvertime(:final overtimeId, :final decision):
+        case DecideOvertime(
+          :final overtimeId,
+          :final decision,
+          :final managerNote,
+        ):
           final updated = await _service.decideOvertimeRequest(
             overtimeId,
             decision,
+            managerNote,
           );
           final data = _state.dashboard;
           if (data == null) return false;
@@ -450,23 +446,6 @@ class ManagerBloc {
               message: decision == LeaveDecision.approved
                   ? 'Overtime approved'
                   : 'Overtime declined',
-            ),
-          );
-        case DecideReimbursement(:final claimId, :final decision):
-          final updated = await _service.decideReimbursement(claimId, decision);
-          final data = _state.dashboard;
-          if (data == null) return false;
-          final claims = data.reimbursements.map((claim) {
-            return claim.id == claimId ? updated : claim;
-          }).toList();
-          _emit(
-            _state.copyWith(
-              dashboard: data.copyWith(reimbursements: claims),
-              message: switch (decision) {
-                'approved' => 'Reimbursement approved',
-                'paid' => 'Reimbursement marked as paid',
-                _ => 'Reimbursement declined',
-              },
             ),
           );
         case OpenAwardPicker(:final awardKey):
@@ -543,6 +522,7 @@ class ManagerBloc {
           :final amount,
           :final category,
           :final receiptName,
+          :final receiptBytes,
           :final note,
         ):
           final claim = await _service.submitReimbursement(
@@ -550,6 +530,7 @@ class ManagerBloc {
             amount: amount,
             category: category,
             receiptName: receiptName,
+            receiptBytes: receiptBytes,
             note: note,
           );
           final data = _state.dashboard;

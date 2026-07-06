@@ -6,11 +6,11 @@ import {
   updateReimbursementDecision,
 } from '../controllers/reimbursement.controller';
 import { requireAuth } from '../middleware/auth.middleware';
+import { uploadReimbursementReceipt } from '../middleware/reimbursement-upload.middleware';
 
 export const reimbursementRouter = Router();
 reimbursementRouter.use(requireAuth);
-reimbursementRouter.post('/', createReimbursement);
+reimbursementRouter.post('/', uploadReimbursementReceipt, createReimbursement);
 reimbursementRouter.get('/mine', listMyReimbursements);
 reimbursementRouter.get('/inbox', listReimbursementInbox);
 reimbursementRouter.patch('/:claimId/decision', updateReimbursementDecision);
-
