@@ -1,5 +1,6 @@
 // Thin fetch wrapper: base URL, bearer-token injection, JSON parsing, typed errors.
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:4000';
+// Hosted backend (EC2). Override for local dev via VITE_API_BASE_URL in .env.
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://15.207.72.29';
 
 const TOKEN_KEY = 'sowaka.token';
 
