@@ -41,13 +41,11 @@ class QuickActionsScreen extends StatefulWidget {
     super.key,
     required this.bloc,
     required this.dashboard,
-    required this.onLogout,
     required this.controller,
   });
 
   final ManagerBloc bloc;
   final ManagerDashboard dashboard;
-  final Future<void> Function() onLogout;
   final QuickActionsController controller;
 
   @override
@@ -190,17 +188,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           title: 'Download calendar',
           subtitle: 'Leaves + holidays .ics',
           onTap: () => _open(_QuickPage.calendar),
-        ),
-        const SizedBox(height: 20),
-        const _SectionLabel('Account'),
-        const SizedBox(height: 10),
-        _ActionCard(
-          icon: Icons.logout_rounded,
-          color: _Q.live,
-          tint: _Q.liveTint,
-          title: 'Log out',
-          subtitle: 'Sign out of Sowaka Connect',
-          onTap: widget.onLogout,
         ),
       ],
     );
@@ -1700,7 +1687,6 @@ class _Q {
   static const sage = Color(0xFF4C5840);
   static const sageTint = Color(0xFFE7EFE4);
   static const live = Color(0xFFC0392B);
-  static const liveTint = Color(0xFFF8E3E0);
 }
 
 class _QText {

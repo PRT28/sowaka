@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../routes/app_routes.dart';
 import '../../auth/data/auth_models.dart';
 import '../../auth/data/auth_session_store.dart';
+import '../../profile/presentation/profile_screen.dart';
 import '../bloc/manager_bloc.dart';
 import '../data/manager_models.dart';
 import 'quick_actions_screen.dart';
@@ -21,6 +22,7 @@ class ManagerScreen extends StatefulWidget {
 class _ManagerScreenState extends State<ManagerScreen> {
   late final ManagerBloc _bloc;
   late final QuickActionsController _quickActionsController;
+  bool _profileOpen = false;
 
   @override
   void initState() {
@@ -49,7 +51,8 @@ class _ManagerScreenState extends State<ManagerScreen> {
       : ManagerTab.grow;
 
   bool _hasBackTarget(ManagerState state) {
-    return state.awardPickerKey != null ||
+    return _profileOpen ||
+        state.awardPickerKey != null ||
         state.applyLeaveOpen ||
         state.view != ManagerView.home ||
         (state.tab == ManagerTab.quick && _quickActionsController.canGoBack) ||
@@ -57,7 +60,9 @@ class _ManagerScreenState extends State<ManagerScreen> {
   }
 
   void _handleBack(ManagerState state) {
-    if (state.awardPickerKey != null) {
+    if (_profileOpen) {
+      setState(() => _profileOpen = false);
+    } else if (state.awardPickerKey != null) {
       _bloc.add(const CloseAwardPicker());
     } else if (state.applyLeaveOpen) {
       _bloc.add(const CloseApplyLeave());
@@ -72,6 +77,10 @@ class _ManagerScreenState extends State<ManagerScreen> {
       _bloc.add(ChangeManagerTab(_defaultTab));
     }
   }
+
+  void _openProfile() => setState(() => _profileOpen = true);
+
+  void _closeProfile() => setState(() => _profileOpen = false);
 
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
@@ -146,27 +155,34 @@ class _ManagerScreenState extends State<ManagerScreen> {
           },
           child: Scaffold(
             backgroundColor: MColors.bg,
-            body: Stack(
-              children: [
-                Column(
-                  children: [
-                    Expanded(
-                      child: _TabContent(
-                        state: state,
-                        bloc: _bloc,
-                        quickActionsController: _quickActionsController,
-                        onLogout: _logout,
+            body: _profileOpen
+                ? ProfileScreen(
+                    session: widget.session,
+                    dashboard: state.dashboard!,
+                    onBack: _closeProfile,
+                    onLogout: _logout,
+                  )
+                : Stack(
+                    children: [
+                      Column(
+                        children: [
+                          Expanded(
+                            child: _TabContent(
+                              state: state,
+                              bloc: _bloc,
+                              quickActionsController: _quickActionsController,
+                              onOpenProfile: _openProfile,
+                            ),
+                          ),
+                          _BottomTabs(state: state, bloc: _bloc),
+                        ],
                       ),
-                    ),
-                    _BottomTabs(state: state, bloc: _bloc),
-                  ],
-                ),
-                if (state.awardPickerKey != null)
-                  _AwardPicker(state: state, bloc: _bloc),
-                if (state.applyLeaveOpen)
-                  _ApplyLeaveSheet(state: state, bloc: _bloc),
-              ],
-            ),
+                      if (state.awardPickerKey != null)
+                        _AwardPicker(state: state, bloc: _bloc),
+                      if (state.applyLeaveOpen)
+                        _ApplyLeaveSheet(state: state, bloc: _bloc),
+                    ],
+                  ),
           ),
         );
       },
@@ -179,21 +195,25 @@ class _TabContent extends StatelessWidget {
     required this.state,
     required this.bloc,
     required this.quickActionsController,
-    required this.onLogout,
+    required this.onOpenProfile,
   });
 
   final ManagerState state;
   final ManagerBloc bloc;
   final QuickActionsController quickActionsController;
-  final Future<void> Function() onLogout;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 220),
       child: switch (state.tab) {
-        ManagerTab.manage => _ManageContent(state: state, bloc: bloc),
-        ManagerTab.grow => _GrowTab(state: state),
+        ManagerTab.manage => _ManageContent(
+          state: state,
+          bloc: bloc,
+          onOpenProfile: onOpenProfile,
+        ),
+        ManagerTab.grow => _GrowTab(state: state, onOpenProfile: onOpenProfile),
         ManagerTab.connect => const _ComingSoonTab(
           key: ValueKey('connect'),
           icon: Icons.newspaper_rounded,
@@ -205,7 +225,6 @@ class _TabContent extends StatelessWidget {
           bloc: bloc,
           dashboard: state.dashboard!,
           controller: quickActionsController,
-          onLogout: onLogout,
         ),
       },
     );
@@ -213,15 +232,24 @@ class _TabContent extends StatelessWidget {
 }
 
 class _ManageContent extends StatelessWidget {
-  const _ManageContent({required this.state, required this.bloc});
+  const _ManageContent({
+    required this.state,
+    required this.bloc,
+    required this.onOpenProfile,
+  });
 
   final ManagerState state;
   final ManagerBloc bloc;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
     return switch (state.view) {
-      ManagerView.home => _ManagerHome(state: state, bloc: bloc),
+      ManagerView.home => _ManagerHome(
+        state: state,
+        bloc: bloc,
+        onOpenProfile: onOpenProfile,
+      ),
       ManagerView.feedbackList => _FeedbackList(state: state, bloc: bloc),
       ManagerView.feedbackRecord => _RecordFeedback(state: state, bloc: bloc),
     };
@@ -229,10 +257,15 @@ class _ManageContent extends StatelessWidget {
 }
 
 class _ManagerHome extends StatelessWidget {
-  const _ManagerHome({required this.state, required this.bloc});
+  const _ManagerHome({
+    required this.state,
+    required this.bloc,
+    required this.onOpenProfile,
+  });
 
   final ManagerState state;
   final ManagerBloc bloc;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -286,7 +319,20 @@ class _ManagerHome extends StatelessWidget {
                   ],
                 ),
               ),
-              AvatarBadge(initial: data.managerInitial, index: 1, size: 42),
+              Semantics(
+                button: true,
+                label: 'Open profile',
+                child: InkWell(
+                  key: const ValueKey('manager-profile-avatar'),
+                  borderRadius: BorderRadius.circular(99),
+                  onTap: onOpenProfile,
+                  child: AvatarBadge(
+                    initial: data.managerInitial,
+                    index: 1,
+                    size: 42,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1202,9 +1248,10 @@ class _AttendanceTab extends StatelessWidget {
 }
 
 class _GrowTab extends StatelessWidget {
-  const _GrowTab({required this.state});
+  const _GrowTab({required this.state, required this.onOpenProfile});
 
   final ManagerState state;
+  final VoidCallback onOpenProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -1232,6 +1279,7 @@ class _GrowTab extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         PressableCard(
+          onTap: onOpenProfile,
           padding: const EdgeInsets.all(18),
           child: Row(
             children: [

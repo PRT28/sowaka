@@ -20,4 +20,17 @@ export interface AuthUser {
   name: string;
   role: 'manager' | 'employee';
   company: string;
+  profilePhotoUrl?: string;
+  location?: string;
+  designation?: string;
+  employmentType?: string;
+  department?: string;
+  teamDescription?: string;
+  managerName?: string;
+  joiningDate?: string;
+  birthday?: string;
+  recognition?: {
+    label: string;
+    period: string;
+  };
 }

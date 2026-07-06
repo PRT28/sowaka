@@ -6,9 +6,10 @@ import '../../../services/api_config.dart';
 import 'auth_models.dart';
 
 class AuthApiException implements Exception {
-  const AuthApiException(this.message);
+  const AuthApiException(this.message, {this.statusCode});
 
   final String message;
+  final int? statusCode;
 
   @override
   String toString() => message;
@@ -31,6 +32,29 @@ class AuthApiService {
     return AuthSession.fromJson(json);
   }
 
+  Future<AuthUser> fetchCurrentUser(String token) async {
+    final uri = Uri.parse('$_baseUrl/auth/me');
+    final response = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    final raw = utf8.decode(response.bodyBytes);
+    final data = raw.isEmpty
+        ? <String, dynamic>{}
+        : jsonDecode(raw) as Map<String, dynamic>;
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw AuthApiException(
+        data['message'] as String? ?? 'Could not refresh profile',
+        statusCode: response.statusCode,
+      );
+    }
+
+    return AuthUser.fromJson(
+      data['user'] as Map<String, dynamic>? ?? <String, dynamic>{},
+    );
+  }
+
   Future<Map<String, dynamic>> _post(
     String path,
     Map<String, dynamic> body,
@@ -49,6 +73,7 @@ class AuthApiService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw AuthApiException(
         data['message'] as String? ?? 'Authentication failed',
+        statusCode: response.statusCode,
       );
     }
 
