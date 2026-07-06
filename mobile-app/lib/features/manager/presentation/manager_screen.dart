@@ -474,7 +474,8 @@ class _ManagerHome extends StatelessWidget {
             return _AwardCard(
               award: data.awards[index],
               team: data.recognitionCandidates,
-              onTap: () => bloc.add(OpenAwardPicker(data.awards[index].key)),
+              onNominate: () =>
+                  bloc.add(OpenAwardPicker(data.awards[index].key)),
             );
           },
         ),
@@ -5531,12 +5532,12 @@ class _AwardCard extends StatelessWidget {
   const _AwardCard({
     required this.award,
     required this.team,
-    required this.onTap,
+    required this.onNominate,
   });
 
   final AwardNomination award;
   final List<TeamMember> team;
-  final VoidCallback onTap;
+  final VoidCallback onNominate;
 
   @override
   Widget build(BuildContext context) {
@@ -5545,7 +5546,6 @@ class _AwardCard extends StatelessWidget {
         ? null
         : team.where((item) => item.id == award.nomineeId).firstOrNull;
     return PressableCard(
-      onTap: onTap,
       padding: const EdgeInsets.all(13),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -5570,13 +5570,36 @@ class _AwardCard extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             nominee?.name ?? award.subtitle,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: nominee == null ? MColors.inkSoft : palette.$1,
               fontSize: 12.2,
               height: 1.25,
               fontWeight: nominee == null ? FontWeight.w500 : FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 9),
+          Semantics(
+            button: true,
+            label: 'Nominate someone for ${award.title}',
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onNominate,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Text(
+                    '+ Nominate',
+                    style: TextStyle(
+                      color: palette.$1,
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ],

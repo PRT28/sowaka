@@ -768,7 +768,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             ? 'Submitting…'
             : review
             ? _flowCta(_flow)
-            : step!.optional && _text.text.trim().isEmpty
+            : step!.optional && !_hasStepValue(step)
             ? 'Skip'
             : _step == steps.length - 1
             ? 'Review'
@@ -829,6 +829,15 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       _StepKind.text => _text.text.trim().isNotEmpty || step.optional,
       _StepKind.dates || _StepKind.date => _dateChosen,
       _StepKind.upload => true,
+    };
+  }
+
+  bool _hasStepValue(_FlowStep step) {
+    return switch (step.kind) {
+      _StepKind.upload => _uploadBytes != null && _uploadName != null,
+      _StepKind.text => _text.text.trim().isNotEmpty,
+      _StepKind.choice => _choice != null,
+      _StepKind.dates || _StepKind.date => _dateChosen,
     };
   }
 
@@ -976,6 +985,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         color: color,
         tint: _Q.tealTint,
         value: _uploadName,
+        bytes: _uploadBytes,
         onChanged: (file) => setState(() {
           _uploadName = file?.name;
           _uploadBytes = file?.bytes;
@@ -2222,12 +2232,21 @@ class _UploadCard extends StatelessWidget {
     required this.color,
     required this.tint,
     required this.value,
+    required this.bytes,
     required this.onChanged,
   });
   final Color color;
   final Color tint;
   final String? value;
+  final Uint8List? bytes;
   final ValueChanged<PlatformFile?> onChanged;
+
+  bool get _canPreviewImage {
+    return bytes != null &&
+        (_extension == 'jpg' || _extension == 'jpeg' || _extension == 'png');
+  }
+
+  String? get _extension => value?.split('.').last.toLowerCase();
 
   Future<void> _pickFile(BuildContext context) async {
     try {
@@ -2279,6 +2298,21 @@ class _UploadCard extends StatelessWidget {
             ),
             child: Column(
               children: [
+                if (_canPreviewImage) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      child: Image.memory(
+                        bytes!,
+                        width: double.infinity,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 Container(
                   width: 52,
                   height: 52,
@@ -2289,7 +2323,9 @@ class _UploadCard extends StatelessWidget {
                   child: Icon(
                     value == null
                         ? Icons.add_a_photo_rounded
-                        : Icons.task_rounded,
+                        : _extension == 'pdf'
+                        ? Icons.picture_as_pdf_rounded
+                        : Icons.image_rounded,
                     color: color,
                     size: 26,
                   ),
@@ -2303,7 +2339,11 @@ class _UploadCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  value == null ? 'Photo or PDF, up to 5 MB' : 'Tap to replace',
+                  value == null
+                      ? 'Photo or PDF, up to 5 MB'
+                      : _extension == 'pdf'
+                      ? 'PDF selected · Tap to replace'
+                      : 'Image selected · Tap to replace',
                   style: _QText.cardSubtitleFaint,
                 ),
               ],
