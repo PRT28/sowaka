@@ -1,6 +1,13 @@
 enum ManagerTab { manage, grow, connect, quick }
 
-enum ManagerView { home, feedbackList, feedbackRecord }
+enum ManagerView {
+  home,
+  feedbackList,
+  feedbackRecord,
+  leaveRequests,
+  overtimeRequests,
+  reimbursementRequests,
+}
 
 enum FeedbackStatus { pending, saved, sent, missed }
 
@@ -22,6 +29,41 @@ class FeedbackParam {
       name: name ?? this.name,
       score: score ?? this.score,
       note: note ?? this.note,
+    );
+  }
+}
+
+class GrowthRecord {
+  const GrowthRecord({
+    required this.period,
+    required this.overallScore,
+    required this.parameters,
+    required this.sentAt,
+    required this.managerName,
+  });
+
+  final String period;
+  final double overallScore;
+  final List<FeedbackParam> parameters;
+  final DateTime sentAt;
+  final String managerName;
+
+  factory GrowthRecord.fromJson(Map<String, dynamic> json) {
+    final values = json['parameters'] as List<dynamic>? ?? const [];
+    return GrowthRecord(
+      period: json['period'] as String? ?? '',
+      overallScore: (json['overallScore'] as num?)?.toDouble() ?? 0,
+      parameters: values.map((value) {
+        final item = value as Map<String, dynamic>;
+        return FeedbackParam(
+          name: item['name'] as String? ?? '',
+          score: (item['score'] as num?)?.toDouble() ?? 0,
+          note: item['note'] as String? ?? '',
+        );
+      }).toList(),
+      sentAt:
+          DateTime.tryParse(json['sentAt'] as String? ?? '') ?? DateTime.now(),
+      managerName: json['managerName'] as String? ?? 'Your manager',
     );
   }
 }
@@ -158,6 +200,7 @@ class LeaveRequest {
     required this.who,
     required this.initial,
     required this.avatarIndex,
+    required this.team,
     required this.type,
     required this.start,
     required this.end,
@@ -171,6 +214,7 @@ class LeaveRequest {
   final String who;
   final String initial;
   final int avatarIndex;
+  final String team;
   final String type;
   final DateTime start;
   final DateTime end;
@@ -190,6 +234,10 @@ class LeaveRequest {
       who: name,
       initial: name.isEmpty ? '?' : name[0].toUpperCase(),
       avatarIndex: name.hashCode.abs() % 7,
+      team:
+          employee['department'] as String? ??
+          employee['designation'] as String? ??
+          'Team',
       type: '${typeValue[0].toUpperCase()}${typeValue.substring(1)}',
       start: start,
       end: end,
@@ -212,6 +260,7 @@ class LeaveRequest {
       who: who,
       initial: initial,
       avatarIndex: avatarIndex,
+      team: team,
       type: type,
       start: start,
       end: end,
@@ -324,29 +373,41 @@ class OvertimeRequest {
 class ReimbursementClaim {
   const ReimbursementClaim({
     required this.id,
+    required this.who,
+    required this.team,
     required this.category,
     required this.amount,
     required this.expenseDate,
+    required this.receiptName,
     required this.note,
     required this.status,
+    required this.createdAt,
   });
 
   final String id;
+  final String who;
+  final String team;
   final String category;
   final double amount;
   final DateTime expenseDate;
+  final String receiptName;
   final String note;
   final String status;
+  final DateTime createdAt;
 
   factory ReimbursementClaim.fromJson(Map<String, dynamic> json) {
     final category = json['category'] as String? ?? 'other';
+    final employee = json['employee'] as Map<String, dynamic>? ?? const {};
     return ReimbursementClaim(
       id: json['id'] as String? ?? '',
+      who: employee['name'] as String? ?? 'Employee',
+      team: employee['department'] as String? ?? 'Team',
       category: category.isEmpty
           ? 'Other'
           : '${category[0].toUpperCase()}${category.substring(1)}',
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       expenseDate: DateTime.parse(json['expenseDate'] as String),
+      receiptName: json['receiptName'] as String? ?? '',
       note: json['note'] as String? ?? '',
       status: switch (json['status']) {
         'approved' => 'Approved',
@@ -354,6 +415,24 @@ class ReimbursementClaim {
         'paid' => 'Paid',
         _ => 'Pending',
       },
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
+
+  ReimbursementClaim copyWith({String? status}) {
+    return ReimbursementClaim(
+      id: id,
+      who: who,
+      team: team,
+      category: category,
+      amount: amount,
+      expenseDate: expenseDate,
+      receiptName: receiptName,
+      note: note,
+      status: status ?? this.status,
+      createdAt: createdAt,
     );
   }
 }
@@ -365,6 +444,7 @@ class ManagerDashboard {
     required this.managerTeam,
     required this.approverName,
     required this.managerScore,
+    required this.growthHistory,
     required this.today,
     required this.team,
     required this.recognitionCandidates,
@@ -375,6 +455,7 @@ class ManagerDashboard {
     required this.overtime,
     required this.myOvertime,
     required this.myReimbursements,
+    required this.reimbursements,
   });
 
   final String managerName;
@@ -382,6 +463,7 @@ class ManagerDashboard {
   final String managerTeam;
   final String approverName;
   final double managerScore;
+  final List<GrowthRecord> growthHistory;
   final DateTime today;
   final List<TeamMember> team;
   final List<TeamMember> recognitionCandidates;
@@ -392,6 +474,7 @@ class ManagerDashboard {
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
   final List<ReimbursementClaim> myReimbursements;
+  final List<ReimbursementClaim> reimbursements;
 
   ManagerDashboard copyWith({
     List<TeamMember>? team,
@@ -403,6 +486,7 @@ class ManagerDashboard {
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
     List<ReimbursementClaim>? myReimbursements,
+    List<ReimbursementClaim>? reimbursements,
   }) {
     return ManagerDashboard(
       managerName: managerName,
@@ -410,6 +494,7 @@ class ManagerDashboard {
       managerTeam: managerTeam,
       approverName: approverName,
       managerScore: managerScore,
+      growthHistory: growthHistory,
       today: today,
       team: team ?? this.team,
       recognitionCandidates:
@@ -421,6 +506,7 @@ class ManagerDashboard {
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,
       myReimbursements: myReimbursements ?? this.myReimbursements,
+      reimbursements: reimbursements ?? this.reimbursements,
     );
   }
 }

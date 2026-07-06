@@ -58,7 +58,7 @@ export async function getManagerWorkspace(managerUserId: string) {
     .toArray();
   const period = currentPeriod();
   const reportIds = reports.map((report) => report.userId);
-  const [currentFeedback, latestSent, nominations, ownFeedback] = await Promise.all([
+  const [currentFeedback, latestSent, nominations, ownFeedbackHistory] = await Promise.all([
     feedbackRecords().find({ managerUserId, employeeUserId: { $in: reportIds }, period }).toArray(),
     feedbackRecords()
       .aggregate([
@@ -68,11 +68,12 @@ export async function getManagerWorkspace(managerUserId: string) {
       ])
       .toArray(),
     recognitionNominations().find({ managerUserId, period }).toArray(),
-    feedbackRecords().findOne(
-      { employeeUserId: managerUserId, status: 'sent' },
-      { sort: { period: -1 } },
-    ),
+    feedbackRecords()
+      .find({ employeeUserId: managerUserId, status: 'sent' })
+      .sort({ period: 1 })
+      .toArray(),
   ]);
+  const ownFeedback = ownFeedbackHistory.at(-1);
 
   const currentByEmployee = new Map(
     currentFeedback.map((record) => [record.employeeUserId, record]),
@@ -104,6 +105,13 @@ export async function getManagerWorkspace(managerUserId: string) {
     period,
     approverName: approver?.name ?? 'Your manager',
     managerScore: Number((ownFeedback?.overallScore ?? 0).toFixed(1)),
+    growthHistory: ownFeedbackHistory.map((record) => ({
+      period: record.period,
+      overallScore: Number(record.overallScore.toFixed(1)),
+      parameters: record.parameters,
+      sentAt: record.sentAt ?? record.updatedAt,
+      managerName: approver?.name ?? 'Your manager',
+    })),
     team,
     recognitionCandidates: recognitionCandidates.map((employee) => ({
       userId: employee.userId,

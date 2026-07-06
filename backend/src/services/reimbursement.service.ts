@@ -21,11 +21,7 @@ export async function createReimbursementClaim(
     note?: string;
   },
 ) {
-  const employee = await users().findOne({ userId });
-  if (!employee) throw new ReimbursementError(404, 'Employee not found');
-  if (!employee.managerUserId) {
-    throw new ReimbursementError(409, 'A manager must be assigned before submitting a claim');
-  }
+  const employee = await requireEmployeeWithManager(userId);
   const expenseDate = parseDateOnly(input.expenseDate);
   if (expenseDate > startOfUtcDay(new Date())) {
     throw new ReimbursementError(400, 'Expense date cannot be in the future');
@@ -38,13 +34,14 @@ export async function createReimbursementClaim(
   if (!categories.has(category)) throw new ReimbursementError(400, 'Expense category is invalid');
   const receiptName = input.receiptName?.trim();
   const note = input.note?.trim();
-  if (receiptName && receiptName.length > 255) throw new ReimbursementError(400, 'Receipt name is too long');
+  if (receiptName && receiptName.length > 255)
+    throw new ReimbursementError(400, 'Receipt name is too long');
   if (note && note.length > 500) throw new ReimbursementError(400, 'Note is too long');
 
   const now = new Date();
   const claim: ReimbursementClaim = {
     userId,
-    managerUserId: employee.managerUserId,
+    managerUserId: employee.managerUserId!,
     expenseDate,
     amount: Math.round(amount * 100) / 100,
     category,
@@ -71,7 +68,9 @@ export async function getManagerReimbursementInbox(managerUserId: string) {
     .sort({ status: -1, createdAt: -1 })
     .toArray();
   const employeeIds = [...new Set(claims.map((claim) => claim.userId))];
-  const employees = await users().find({ userId: { $in: employeeIds } }).toArray();
+  const employees = await users()
+    .find({ userId: { $in: employeeIds } })
+    .toArray();
   const employeeById = new Map(employees.map((employee) => [employee.userId, employee]));
   return claims.flatMap((claim) => {
     const employee = employeeById.get(claim.userId);
@@ -153,9 +152,24 @@ function startOfUtcDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+async function requireEmployeeWithManager(userId: string) {
+  const employee = await users().findOne({ userId });
+  if (!employee) throw new ReimbursementError(404, 'Employee not found');
+  if (!employee.managerUserId) {
+    throw new ReimbursementError(409, 'A manager must be assigned before submitting a claim');
+  }
+  const manager = await users().findOne({ userId: employee.managerUserId });
+  if (!manager || ['offboarded', 'terminated'].includes(manager.lifecycleStatus)) {
+    throw new ReimbursementError(409, 'The assigned manager is not active');
+  }
+  return employee;
+}
+
 export class ReimbursementError extends Error {
-  constructor(public readonly statusCode: number, message: string) {
+  constructor(
+    public readonly statusCode: number,
+    message: string,
+  ) {
     super(message);
   }
 }
-

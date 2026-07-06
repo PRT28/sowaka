@@ -24,6 +24,36 @@ void main() {
 
     bloc.dispose();
   });
+
+  test('manager request queues open and return to the action hub', () async {
+    final bloc = ManagerBloc(session: _session('manager'));
+
+    bloc.add(const OpenLeaveRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.leaveRequests);
+
+    bloc.add(const CloseLeaveRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.home);
+
+    bloc.add(const OpenOvertimeRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.overtimeRequests);
+
+    bloc.add(const CloseOvertimeRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.home);
+
+    bloc.add(const OpenReimbursementRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.reimbursementRequests);
+
+    bloc.add(const CloseReimbursementRequests());
+    await Future<void>.delayed(Duration.zero);
+    expect(bloc.state.view, ManagerView.home);
+
+    bloc.dispose();
+  });
 }
 
 AuthSession _session(String role) {
