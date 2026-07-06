@@ -1,3 +1,6 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../bloc/manager_bloc.dart';
@@ -65,6 +68,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   DateTime? _leaveTo;
   bool _dateChosen = false;
   String? _uploadName;
+  Uint8List? _uploadBytes;
   final _text = TextEditingController();
   final Map<String, String> _answers = {};
   _Policy? _policy;
@@ -97,6 +101,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       _text.clear();
       _dateChosen = false;
       _uploadName = null;
+      _uploadBytes = null;
       _page = _QuickPage.wizard;
     });
     widget.controller._navigationChanged();
@@ -429,7 +434,9 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               .map(
                 (entry) => _RequestRow(
                   '${_short(entry.$2.start)}–${_short(entry.$2.end)} · ${entry.$2.days} days',
-                  '${entry.$2.type} leave',
+                  entry.$2.managerNote.isEmpty
+                      ? '${entry.$2.type} leave'
+                      : '${entry.$2.type} leave · ${entry.$2.managerNote}',
                   _decision(entry.$2.decision),
                   icon: Icons.calendar_month_rounded,
                   color: _Q.terra,
@@ -458,22 +465,33 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
 
   Future<void> _openLeaveSheet() async {
     if (_leaveFrom == null) return;
+    final from = _leaveFrom!;
+    final to = _leaveTo ?? _leaveFrom!;
     final result = await showModalBottomSheet<_LeaveSheetResult>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => _LeaveApplySheet(
-        dashboard: widget.dashboard,
-        from: _leaveFrom!,
-        to: _leaveTo ?? _leaveFrom!,
-      ),
+      builder: (context) =>
+          _LeaveApplySheet(dashboard: widget.dashboard, from: from, to: to),
     );
     if (result == null || !mounted) return;
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _LeaveConfirmationSheet(
+        dashboard: widget.dashboard,
+        from: from,
+        to: to,
+        result: result,
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     final sent = await widget.bloc.add(
       SubmitLeaveApplication(
         type: result.type,
-        startDate: _leaveFrom!,
-        endDate: _leaveTo ?? _leaveFrom!,
+        startDate: from,
+        endDate: to,
         reason: result.note,
       ),
     );
@@ -525,7 +543,9 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               .map(
                 (entry) => _RequestRow(
                   entry.$2.project,
-                  '${_short(entry.$2.workDate)} · ${entry.$2.duration}',
+                  entry.$2.managerNote.isEmpty
+                      ? '${_short(entry.$2.workDate)} · ${entry.$2.duration}'
+                      : '${_short(entry.$2.workDate)} · ${entry.$2.duration} · ${entry.$2.managerNote}',
                   _decision(entry.$2.decision),
                   icon: Icons.schedule_rounded,
                   color: _Q.gold,
@@ -842,6 +862,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             amount: _answers['Amount'] ?? '',
             category: _answers['Type'] ?? 'Other',
             receiptName: _answers['Bill'] ?? '',
+            receiptBytes: _uploadBytes,
             note: _answers['Note'] ?? '',
           ),
         );
@@ -931,6 +952,16 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       _StepKind.date => _PaperCard(
         child: _MonthCalendar(
           from: _dateChosen ? _from : null,
+          selectableDayPredicate:
+              _flow == _QuickFlow.overtime || _flow == _QuickFlow.reimbursement
+              ? (day) {
+                  final now = DateTime.now();
+                  final today = DateTime(now.year, now.month, now.day);
+                  return _flow == _QuickFlow.overtime
+                      ? day.isBefore(today)
+                      : !day.isAfter(today);
+                }
+              : null,
           onPick: (day) => setState(() {
             _from = day;
             _to = day;
@@ -945,7 +976,10 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         color: color,
         tint: _Q.tealTint,
         value: _uploadName,
-        onChanged: (value) => setState(() => _uploadName = value),
+        onChanged: (file) => setState(() {
+          _uploadName = file?.name;
+          _uploadBytes = file?.bytes;
+        }),
       ),
     };
   }
@@ -1668,12 +1702,14 @@ class _MonthCalendar extends StatefulWidget {
     this.from,
     this.to,
     this.selectionLabel,
+    this.selectableDayPredicate,
   });
 
   final DateTime? from;
   final DateTime? to;
   final ValueChanged<DateTime> onPick;
   final String? selectionLabel;
+  final bool Function(DateTime day)? selectableDayPredicate;
 
   @override
   State<_MonthCalendar> createState() => _MonthCalendarState();
@@ -1744,6 +1780,7 @@ class _MonthCalendarState extends State<_MonthCalendar> {
             final number = index - leading + 1;
             if (number < 1 || number > count) return const SizedBox();
             final day = DateTime(_month.year, _month.month, number);
+            final enabled = widget.selectableDayPredicate?.call(day) ?? true;
             final selected =
                 _sameDay(day, widget.from) || _sameDay(day, widget.to);
             final between =
@@ -1752,7 +1789,7 @@ class _MonthCalendarState extends State<_MonthCalendar> {
                 day.isAfter(widget.from!) &&
                 day.isBefore(widget.to!);
             return InkWell(
-              onTap: () => widget.onPick(day),
+              onTap: enabled ? () => widget.onPick(day) : null,
               borderRadius: BorderRadius.circular(11),
               child: Container(
                 alignment: Alignment.center,
@@ -1767,7 +1804,11 @@ class _MonthCalendarState extends State<_MonthCalendar> {
                 child: Text(
                   '$number',
                   style: TextStyle(
-                    color: selected ? Colors.white : _Q.ink,
+                    color: !enabled
+                        ? _Q.inkFaint.withValues(alpha: .45)
+                        : selected
+                        ? Colors.white
+                        : _Q.ink,
                     fontSize: 14,
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                   ),
@@ -2044,7 +2085,7 @@ class _LeaveApplySheetState extends State<_LeaveApplySheet> {
                           ),
                         ),
                   child: Text(
-                    _type == null ? 'Choose a leave type' : 'Send to manager',
+                    _type == null ? 'Choose a leave type' : 'Review request',
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -2057,6 +2098,125 @@ class _LeaveApplySheetState extends State<_LeaveApplySheet> {
   }
 }
 
+class _LeaveConfirmationSheet extends StatelessWidget {
+  const _LeaveConfirmationSheet({
+    required this.dashboard,
+    required this.from,
+    required this.to,
+    required this.result,
+  });
+
+  final ManagerDashboard dashboard;
+  final DateTime from;
+  final DateTime to;
+  final _LeaveSheetResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final days = to.difference(from).inDays + 1;
+    final range = _sameDay(from, to)
+        ? _short(from)
+        : '${_short(from)} – ${_short(to)}';
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 12, 18, 20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _Q.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Confirm leave request', style: _QText.topbar),
+            const SizedBox(height: 6),
+            Text(
+              'Review the details before sending this to ${dashboard.approverName}.',
+              style: _QText.subtitle,
+            ),
+            const SizedBox(height: 18),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _Q.terraTint,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.event_available_rounded, color: _Q.terra),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      '$range · $days day${days == 1 ? '' : 's'}',
+                      style: _QText.cardTitle,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            _ConfirmationRow(label: 'Leave type', value: result.type),
+            _ConfirmationRow(label: 'Approver', value: dashboard.approverName),
+            if (result.note.isNotEmpty)
+              _ConfirmationRow(label: 'Note', value: result.note),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Go back'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(backgroundColor: _Q.terra),
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Send request'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ConfirmationRow extends StatelessWidget {
+  const _ConfirmationRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(width: 92, child: Text(label, style: _QText.mini)),
+        Expanded(child: Text(value, style: _QText.cardTitle)),
+      ],
+    ),
+  );
+}
+
 class _UploadCard extends StatelessWidget {
   const _UploadCard({
     required this.color,
@@ -2067,7 +2227,37 @@ class _UploadCard extends StatelessWidget {
   final Color color;
   final Color tint;
   final String? value;
-  final ValueChanged<String?> onChanged;
+  final ValueChanged<PlatformFile?> onChanged;
+
+  Future<void> _pickFile(BuildContext context) async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty || !context.mounted) return;
+      final file = result.files.single;
+      if (file.size > 5 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Choose a file smaller than 5 MB.')),
+        );
+        return;
+      }
+      if (file.bytes == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read the selected file.')),
+        );
+        return;
+      }
+      onChanged(file);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the file picker.')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2075,7 +2265,7 @@ class _UploadCard extends StatelessWidget {
       children: [
         InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => onChanged('receipt-jun.jpg'),
+          onTap: () => _pickFile(context),
           child: Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
@@ -2397,10 +2587,9 @@ const _flowSteps = <_QuickFlow, List<_FlowStep>>{
     ),
     _FlowStep(
       label: 'Bill',
-      kind: _StepKind.text,
-      question: 'Add a receipt reference',
-      subtitle: 'Optional — enter the receipt or bill filename.',
-      placeholder: 'e.g. cab-receipt-12-jun.pdf',
+      kind: _StepKind.upload,
+      question: 'Upload your receipt',
+      subtitle: 'Optional — choose a photo or PDF up to 5 MB.',
       optional: true,
     ),
     _FlowStep(

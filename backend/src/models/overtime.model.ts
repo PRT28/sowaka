@@ -8,10 +8,10 @@ export interface OvertimeRequest {
   hours: number;
   project: string;
   note?: string;
+  managerNote?: string;
   status: OvertimeStatus;
   decidedByUserId?: string;
   decidedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
-

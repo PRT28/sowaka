@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -46,32 +47,41 @@ void main() {
     expect(claim.receiptName, 'cab.pdf');
   });
 
-  test(
-    'sends manager reimbursement decisions to the decision endpoint',
-    () async {
-      final client = MockClient((request) async {
-        expect(request.method, 'PATCH');
-        expect(request.url.path, '/reimbursements/claim-1/decision');
-        expect(jsonDecode(request.body), {'decision': 'approved'});
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'claim': _claimJson(status: 'approved'),
-          }),
-          200,
-        );
-      });
-      final service = ManagerApiService(
-        session: _session,
-        baseUrl: 'http://localhost:4000',
-        client: client,
+  test('uploads a selected receipt as multipart form data', () async {
+    final client = MockClient((request) async {
+      expect(request.method, 'POST');
+      expect(request.url.path, '/reimbursements');
+      expect(request.headers['Authorization'], 'Bearer token');
+      expect(
+        request.headers['content-type'],
+        startsWith('multipart/form-data; boundary='),
       );
+      final body = latin1.decode(request.bodyBytes);
+      expect(body, contains('name="receipt"; filename="cab.pdf"'));
+      expect(body, contains('name="expenseDate"'));
+      expect(body, contains('2026-07-06'));
+      expect(body, contains('%PDF-'));
+      return http.Response(
+        jsonEncode({'success': true, 'claim': _claimJson(status: 'pending')}),
+        201,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final service = ManagerApiService(
+      session: _session,
+      baseUrl: 'http://localhost:4000',
+      client: client,
+    );
 
-      final claim = await service.decideReimbursement('claim-1', 'approved');
-
-      expect(claim.status, 'Approved');
-    },
-  );
+    await service.submitReimbursement(
+      expenseDate: DateTime(2026, 7, 6),
+      amount: '1,250.50',
+      category: 'Travel',
+      receiptName: 'cab.pdf',
+      receiptBytes: Uint8List.fromList(utf8.encode('%PDF-1.7 test')),
+      note: 'Client visit',
+    );
+  });
 }
 
 const _session = AuthSession(

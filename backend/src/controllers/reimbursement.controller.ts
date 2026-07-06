@@ -14,6 +14,14 @@ export async function createReimbursement(req: Request, res: Response, next: Nex
       amount: req.body.amount,
       category: String(req.body.category ?? ''),
       receiptName: req.body.receiptName == null ? undefined : String(req.body.receiptName),
+      receipt: req.file
+        ? {
+            originalName: req.file.originalname,
+            contentType: req.file.mimetype,
+            size: req.file.size,
+            bytes: req.file.buffer,
+          }
+        : undefined,
       note: req.body.note == null ? undefined : String(req.body.note),
     });
     res.status(201).json({ success: true, claim });
@@ -24,7 +32,9 @@ export async function createReimbursement(req: Request, res: Response, next: Nex
 
 export async function listMyReimbursements(req: Request, res: Response, next: NextFunction) {
   try {
-    res.status(200).json({ success: true, claims: await getMyReimbursementClaims(requireUserId(req)) });
+    res
+      .status(200)
+      .json({ success: true, claims: await getMyReimbursementClaims(requireUserId(req)) });
   } catch (error) {
     next(error);
   }
@@ -32,17 +42,15 @@ export async function listMyReimbursements(req: Request, res: Response, next: Ne
 
 export async function listReimbursementInbox(req: Request, res: Response, next: NextFunction) {
   try {
-    res.status(200).json({ success: true, claims: await getManagerReimbursementInbox(requireUserId(req)) });
+    res
+      .status(200)
+      .json({ success: true, claims: await getManagerReimbursementInbox(requireUserId(req)) });
   } catch (error) {
     next(error);
   }
 }
 
-export async function updateReimbursementDecision(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-) {
+export async function updateReimbursementDecision(req: Request, res: Response, next: NextFunction) {
   try {
     const claim = await decideReimbursement(
       requireUserId(req),
@@ -59,4 +67,3 @@ function requireUserId(req: Request) {
   if (!req.auth?.userId) throw new ReimbursementError(401, 'Authentication required');
   return req.auth.userId;
 }
-

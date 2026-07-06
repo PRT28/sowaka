@@ -23,7 +23,9 @@ export async function createOvertime(req: Request, res: Response, next: NextFunc
 
 export async function listMyOvertime(req: Request, res: Response, next: NextFunction) {
   try {
-    res.status(200).json({ success: true, overtime: await getMyOvertimeRequests(requireUserId(req)) });
+    res
+      .status(200)
+      .json({ success: true, overtime: await getMyOvertimeRequests(requireUserId(req)) });
   } catch (error) {
     next(error);
   }
@@ -31,7 +33,9 @@ export async function listMyOvertime(req: Request, res: Response, next: NextFunc
 
 export async function listOvertimeInbox(req: Request, res: Response, next: NextFunction) {
   try {
-    res.status(200).json({ success: true, overtime: await getManagerOvertimeInbox(requireUserId(req)) });
+    res
+      .status(200)
+      .json({ success: true, overtime: await getManagerOvertimeInbox(requireUserId(req)) });
   } catch (error) {
     next(error);
   }
@@ -39,11 +43,10 @@ export async function listOvertimeInbox(req: Request, res: Response, next: NextF
 
 export async function updateOvertimeDecision(req: Request, res: Response, next: NextFunction) {
   try {
-    const overtime = await decideOvertime(
-      requireUserId(req),
-      String(req.params.overtimeId ?? ''),
-      String(req.body.decision ?? ''),
-    );
+    const overtime = await decideOvertime(requireUserId(req), String(req.params.overtimeId ?? ''), {
+      decision: String(req.body.decision ?? ''),
+      managerNote: req.body.managerNote == null ? undefined : String(req.body.managerNote),
+    });
     res.status(200).json({ success: true, overtime });
   } catch (error) {
     next(error);
@@ -54,4 +57,3 @@ function requireUserId(req: Request) {
   if (!req.auth?.userId) throw new OvertimeError(401, 'Authentication required');
   return req.auth.userId;
 }
-

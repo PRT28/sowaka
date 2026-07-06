@@ -6,7 +6,6 @@ enum ManagerView {
   feedbackRecord,
   leaveRequests,
   overtimeRequests,
-  reimbursementRequests,
 }
 
 enum FeedbackStatus { pending, saved, sent, missed }
@@ -208,6 +207,7 @@ class LeaveRequest {
     required this.reason,
     required this.requestedOn,
     required this.decision,
+    required this.managerNote,
   });
 
   final String id;
@@ -222,6 +222,7 @@ class LeaveRequest {
   final String reason;
   final DateTime requestedOn;
   final LeaveDecision decision;
+  final String managerNote;
 
   factory LeaveRequest.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -251,10 +252,11 @@ class LeaveRequest {
         'declined' => LeaveDecision.declined,
         _ => LeaveDecision.pending,
       },
+      managerNote: json['managerNote'] as String? ?? '',
     );
   }
 
-  LeaveRequest copyWith({LeaveDecision? decision}) {
+  LeaveRequest copyWith({LeaveDecision? decision, String? managerNote}) {
     return LeaveRequest(
       id: id,
       who: who,
@@ -268,6 +270,7 @@ class LeaveRequest {
       reason: reason,
       requestedOn: requestedOn,
       decision: decision ?? this.decision,
+      managerNote: managerNote ?? this.managerNote,
     );
   }
 }
@@ -312,6 +315,7 @@ class OvertimeRequest {
     required this.note,
     required this.requestedOn,
     required this.decision,
+    required this.managerNote,
   });
 
   final String id;
@@ -326,6 +330,7 @@ class OvertimeRequest {
   final String note;
   final DateTime requestedOn;
   final LeaveDecision decision;
+  final String managerNote;
 
   factory OvertimeRequest.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -349,10 +354,11 @@ class OvertimeRequest {
         'declined' => LeaveDecision.declined,
         _ => LeaveDecision.pending,
       },
+      managerNote: json['managerNote'] as String? ?? '',
     );
   }
 
-  OvertimeRequest copyWith({LeaveDecision? decision}) {
+  OvertimeRequest copyWith({LeaveDecision? decision, String? managerNote}) {
     return OvertimeRequest(
       id: id,
       who: who,
@@ -366,6 +372,7 @@ class OvertimeRequest {
       note: note,
       requestedOn: requestedOn,
       decision: decision ?? this.decision,
+      managerNote: managerNote ?? this.managerNote,
     );
   }
 }
@@ -455,7 +462,6 @@ class ManagerDashboard {
     required this.overtime,
     required this.myOvertime,
     required this.myReimbursements,
-    required this.reimbursements,
   });
 
   final String managerName;
@@ -474,7 +480,6 @@ class ManagerDashboard {
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
   final List<ReimbursementClaim> myReimbursements;
-  final List<ReimbursementClaim> reimbursements;
 
   ManagerDashboard copyWith({
     List<TeamMember>? team,
@@ -486,7 +491,6 @@ class ManagerDashboard {
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
     List<ReimbursementClaim>? myReimbursements,
-    List<ReimbursementClaim>? reimbursements,
   }) {
     return ManagerDashboard(
       managerName: managerName,
@@ -506,7 +510,6 @@ class ManagerDashboard {
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,
       myReimbursements: myReimbursements ?? this.myReimbursements,
-      reimbursements: reimbursements ?? this.reimbursements,
     );
   }
 }

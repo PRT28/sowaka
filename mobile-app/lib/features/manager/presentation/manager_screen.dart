@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../../routes/app_routes.dart';
 import '../../auth/data/auth_models.dart';
@@ -74,8 +75,6 @@ class _ManagerScreenState extends State<ManagerScreen> {
       _bloc.add(const CloseLeaveRequests());
     } else if (state.view == ManagerView.overtimeRequests) {
       _bloc.add(const CloseOvertimeRequests());
-    } else if (state.view == ManagerView.reimbursementRequests) {
-      _bloc.add(const CloseReimbursementRequests());
     } else if (state.tab == ManagerTab.quick &&
         _quickActionsController.canGoBack) {
       _quickActionsController.handleBack();
@@ -282,11 +281,6 @@ class _ManageContent extends StatelessWidget {
         bloc: bloc,
         type: _RequestType.overtime,
       ),
-      ManagerView.reimbursementRequests => _RequestList(
-        state: state,
-        bloc: bloc,
-        type: _RequestType.reimbursement,
-      ),
     };
   }
 }
@@ -320,9 +314,6 @@ class _ManagerHome extends StatelessWidget {
     final named = data.awards.where((award) => award.nomineeId != null).length;
     final pendingOvertime = data.overtime
         .where((request) => request.decision == LeaveDecision.pending)
-        .toList();
-    final pendingReimbursements = data.reimbursements
-        .where((claim) => claim.status == 'Pending')
         .toList();
 
     return ListView(
@@ -454,25 +445,6 @@ class _ManagerHome extends StatelessWidget {
           ),
           emptyText: 'All requests reviewed',
           onTap: () => bloc.add(const OpenOvertimeRequests()),
-        ),
-        const SizedBox(height: 28),
-        _SectionTitle(
-          title: 'Reimbursements',
-          trailing: pendingReimbursements.isEmpty
-              ? 'All clear'
-              : '${pendingReimbursements.length} pending',
-          onTap: () => bloc.add(const OpenReimbursementRequests()),
-        ),
-        const SizedBox(height: 12),
-        _AvatarActionCluster(
-          people: pendingReimbursements.map(
-            (claim) => _ActionAvatar(
-              initial: _nameInitials(claim.who),
-              index: claim.who.hashCode.abs() % avatarColors.length,
-            ),
-          ),
-          emptyText: 'All requests reviewed',
-          onTap: () => bloc.add(const OpenReimbursementRequests()),
         ),
         const SizedBox(height: 28),
         _SectionTitle(
@@ -1602,8 +1574,11 @@ class _RecordFeedback extends StatefulWidget {
 
 class _RecordFeedbackState extends State<_RecordFeedback> {
   late final PageController _pageController;
+  final stt.SpeechToText _speech = stt.SpeechToText();
   int _tab = 0;
   int _page = 0;
+  bool _speechInitialized = false;
+  String? _listeningField;
 
   @override
   void initState() {
@@ -1613,8 +1588,70 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
 
   @override
   void dispose() {
+    _speech.cancel();
     _pageController.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleSpeech({
+    required String field,
+    required String currentText,
+    required ValueChanged<String> onText,
+  }) async {
+    if (_speech.isListening && _listeningField == field) {
+      await _speech.stop();
+      if (mounted) setState(() => _listeningField = null);
+      return;
+    }
+    if (_speech.isListening) await _speech.cancel();
+
+    final available = _speechInitialized
+        ? true
+        : await _speech.initialize(
+            onStatus: (status) {
+              if ((status == 'done' || status == 'notListening') && mounted) {
+                setState(() => _listeningField = null);
+              }
+            },
+            onError: (error) {
+              if (!mounted) return;
+              setState(() => _listeningField = null);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Voice input unavailable: ${error.errorMsg}'),
+                  behavior: SnackBarBehavior.floating,
+                  backgroundColor: MColors.ink,
+                ),
+              );
+            },
+          );
+    _speechInitialized = available;
+    if (!available) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Speech recognition is unavailable or microphone access was denied.',
+          ),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: MColors.ink,
+        ),
+      );
+      return;
+    }
+
+    final prefix = currentText.trim();
+    if (mounted) setState(() => _listeningField = field);
+    await _speech.listen(
+      onResult: (result) {
+        final words = result.recognizedWords.trim();
+        if (words.isEmpty) return;
+        onText(prefix.isEmpty ? words : '$prefix $words');
+        if (result.finalResult && mounted) {
+          setState(() => _listeningField = null);
+        }
+      },
+    );
   }
 
   @override
@@ -1768,11 +1805,21 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
                                     child: _ParamCard(
                                       param: state.recordParams[index],
                                       locked: locked,
+                                      listening:
+                                          _listeningField == 'param-$index',
                                       onScore: (value) => bloc.add(
                                         UpdateFeedbackScore(index, value),
                                       ),
                                       onNote: (value) => bloc.add(
                                         UpdateFeedbackNote(index, value),
+                                      ),
+                                      onVoice: () => _toggleSpeech(
+                                        field: 'param-$index',
+                                        currentText:
+                                            state.recordParams[index].note,
+                                        onText: (value) => bloc.add(
+                                          UpdateFeedbackNote(index, value),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -2402,10 +2449,12 @@ class _LegacyRecordFeedback extends StatelessWidget {
                       child: _ParamCard(
                         param: entry.$2,
                         locked: locked,
+                        listening: false,
                         onScore: (value) =>
                             bloc.add(UpdateFeedbackScore(entry.$1, value)),
                         onNote: (value) =>
                             bloc.add(UpdateFeedbackNote(entry.$1, value)),
+                        onVoice: () {},
                       ),
                     );
                   }),
@@ -2471,6 +2520,7 @@ class _LegacyRecordFeedback extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
+                          key: ValueKey('extra-${state.recordExtra}'),
                           initialValue: state.recordExtra,
                           enabled: !locked,
                           maxLines: 4,
@@ -2478,7 +2528,6 @@ class _LegacyRecordFeedback extends StatelessWidget {
                               bloc.add(UpdateFeedbackExtra(value)),
                           decoration: _fieldDecoration(
                             "e.g. Took on the on-call rotation when the team was short-staffed…",
-                            suffix: Icons.mic_none_rounded,
                           ),
                         ),
                       ],
@@ -3075,7 +3124,13 @@ class _GrowTabState extends State<_GrowTab> {
     final parameterNames = history.isEmpty
         ? const <String>[]
         : history.last.parameters.map((item) => item.name).toList();
-    final selected = _selectedParameter;
+    final selected = parameterNames.contains(_selectedParameter)
+        ? _selectedParameter
+        : null;
+    final selectedIndex = selected == null
+        ? -1
+        : parameterNames.indexOf(selected);
+    final trendColor = _growthParameterColor(selectedIndex);
     final values = history.map((record) {
       if (selected == null) return record.overallScore;
       return record.parameters
@@ -3085,115 +3140,149 @@ class _GrowTabState extends State<_GrowTab> {
           0;
     }).toList();
 
-    return ListView(
+    return Column(
       key: const ValueKey('grow'),
-      padding: const EdgeInsets.fromLTRB(16, 60, 16, 34),
       children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Text(
-                'Grow',
-                style: TextStyle(
-                  color: MColors.ink,
-                  fontSize: 27,
-                  fontWeight: FontWeight.w800,
-                ),
+        Container(
+          width: double.infinity,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: MColors.line)),
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _ProfileAvatarAction(
+                      key: const ValueKey('grow-profile-avatar'),
+                      initial: data.managerInitial,
+                      onTap: widget.onOpenProfile,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Grow',
+                    style: TextStyle(
+                      color: MColors.ink,
+                      fontSize: 30,
+                      height: 1.08,
+                      letterSpacing: -0.9,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Your performance & trajectory, from 1-on-1s',
+                    style: TextStyle(color: MColors.inkSoft, fontSize: 14.5),
+                  ),
+                ],
               ),
             ),
-            _ProfileAvatarAction(
-              key: const ValueKey('grow-profile-avatar'),
-              initial: data.managerInitial,
-              onTap: widget.onOpenProfile,
-            ),
-          ],
+          ),
         ),
-        const SizedBox(height: 4),
-        const Text(
-          'Your performance & trajectory, from 1-on-1s',
-          style: TextStyle(color: MColors.inkSoft, fontSize: 14.5),
-        ),
-        const SizedBox(height: 24),
-        if (history.isEmpty)
-          const _GrowthEmptyState()
-        else ...[
-          Row(
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
             children: [
-              const Expanded(
-                child: Text(
+              if (history.isEmpty)
+                const _GrowthEmptyState()
+              else ...[
+                const Text(
                   'Trend',
                   style: TextStyle(
                     color: MColors.ink,
-                    fontSize: 19,
+                    fontSize: 18,
+                    letterSpacing: -0.1,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-              ),
-              Text(
-                values.last.toStringAsFixed(1),
-                style: TextStyle(
-                  color: scoreColor(values.last),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _GrowthChip(
+                        label: 'Overall',
+                        color: MColors.terra,
+                        selected: selected == null,
+                        onTap: () => setState(() => _selectedParameter = null),
+                      ),
+                      ...parameterNames.indexed.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: _GrowthChip(
+                            label: entry.$2,
+                            color: _growthParameterColor(entry.$1),
+                            selected: selected == entry.$2,
+                            onTap: () =>
+                                setState(() => _selectedParameter = entry.$2),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const Text(
-                '/5',
-                style: TextStyle(
-                  color: MColors.inkFaint,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 4),
+                _GrowthChart(
+                  records: history,
+                  values: values,
+                  color: trendColor,
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _GrowthChip(
-                  label: 'Overall',
-                  selected: selected == null,
-                  onTap: () => setState(() => _selectedParameter = null),
-                ),
-                ...parameterNames.map(
-                  (name) => Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: _GrowthChip(
-                      label: name,
-                      selected: selected == name,
-                      onTap: () => setState(() => _selectedParameter = name),
+                if (selected != null) ...[
+                  const SizedBox(height: 22),
+                  const _GrowthSectionLabel('MONTH BY MONTH'),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 205,
+                    child: ListView.separated(
+                      clipBehavior: Clip.none,
+                      scrollDirection: Axis.horizontal,
+                      itemCount: history.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final record = history.reversed.elementAt(index);
+                        final parameter = record.parameters
+                            .where((item) => item.name == selected)
+                            .firstOrNull;
+                        return SizedBox(
+                          width: 270,
+                          child: _GrowthMonthCard(
+                            record: record,
+                            parameter: parameter,
+                          ),
+                        );
+                      },
                     ),
+                  ),
+                ],
+                const SizedBox(height: 22),
+                const Center(
+                  child: Text(
+                    'Full history is retained ✦',
+                    style: TextStyle(color: MColors.inkFaint, fontSize: 12),
                   ),
                 ),
               ],
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          PressableCard(
-            padding: const EdgeInsets.fromLTRB(12, 18, 12, 12),
-            child: _GrowthChart(records: history, values: values),
-          ),
-          const SizedBox(height: 28),
-          const _SectionTitle(title: 'Feedback history'),
-          const SizedBox(height: 12),
-          ...history.reversed.map(
-            (record) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _GrowthHistoryCard(record: record, parameter: selected),
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Center(
-            child: Text(
-              'Full history is retained ✦',
-              style: TextStyle(color: MColors.inkFaint, fontSize: 12),
-            ),
-          ),
-        ],
+        ),
       ],
     );
   }
+}
+
+Color _growthParameterColor(int index) {
+  if (index < 0) return MColors.terra;
+  return switch (index % 3) {
+    1 => MColors.teal,
+    2 => MColors.plum,
+    _ => MColors.terra,
+  };
 }
 
 class _GrowthEmptyState extends StatelessWidget {
@@ -3228,11 +3317,13 @@ class _GrowthEmptyState extends StatelessWidget {
 class _GrowthChip extends StatelessWidget {
   const _GrowthChip({
     required this.label,
+    required this.color,
     required this.selected,
     required this.onTap,
   });
 
   final String label;
+  final Color color;
   final bool selected;
   final VoidCallback onTap;
 
@@ -3244,9 +3335,9 @@ class _GrowthChip extends StatelessWidget {
       duration: const Duration(milliseconds: 160),
       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
       decoration: BoxDecoration(
-        color: selected ? MColors.terra : const Color(0xFFF1EBE1),
+        color: selected ? color : const Color(0xFFF1EBE1),
         border: Border.all(
-          color: selected ? MColors.terra : const Color(0x1A462D1C),
+          color: selected ? Colors.transparent : const Color(0x1A462D1C),
         ),
         borderRadius: BorderRadius.circular(99),
       ),
@@ -3263,56 +3354,116 @@ class _GrowthChip extends StatelessWidget {
 }
 
 class _GrowthChart extends StatelessWidget {
-  const _GrowthChart({required this.records, required this.values});
+  const _GrowthChart({
+    required this.records,
+    required this.values,
+    required this.color,
+  });
 
   final List<GrowthRecord> records;
   final List<double> values;
+  final Color color;
 
   @override
   Widget build(BuildContext context) => Column(
     children: [
       SizedBox(
-        height: 155,
+        height: 158,
         width: double.infinity,
-        child: CustomPaint(painter: _GrowthChartPainter(values)),
+        child: CustomPaint(painter: _GrowthChartPainter(values, color)),
       ),
-      const SizedBox(height: 8),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: records
-            .map(
-              (record) => Text(
-                _periodLabel(record.period),
-                style: const TextStyle(
-                  color: MColors.inkFaint,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+      const SizedBox(height: 6),
+      Padding(
+        padding: const EdgeInsets.only(left: 28, right: 26),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: records
+              .map(
+                (record) => Text(
+                  _periodLabel(record.period),
+                  style: const TextStyle(
+                    color: MColors.inkFaint,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-            )
-            .toList(),
+              )
+              .toList(),
+        ),
       ),
     ],
   );
 }
 
 class _GrowthChartPainter extends CustomPainter {
-  const _GrowthChartPainter(this.values);
+  const _GrowthChartPainter(this.values, this.color);
 
   final List<double> values;
+  final Color color;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = MColors.line
-      ..strokeWidth = 1;
-    for (var i = 0; i < 5; i++) {
-      final y = i * size.height / 4;
-      canvas.drawLine(Offset.zero.translate(0, y), Offset(size.width, y), grid);
-    }
     if (values.isEmpty) return;
+    var minValue = values.reduce(math.min);
+    var maxValue = values.reduce(math.max);
+    var min = ((minValue - .5) * 2).floor() / 2;
+    var max = ((maxValue + .5) * 2).ceil() / 2;
+    if (max - min < 2) {
+      final middle = (min + max) / 2;
+      min = middle - 1;
+      max = middle + 1;
+    }
+    if (min < 0) {
+      max -= min;
+      min = 0;
+    }
+    if (max > 5) {
+      min -= max - 5;
+      max = 5;
+    }
+    min = math.max(0, min);
+    final range = max - min == 0 ? 1.0 : max - min;
+    const left = 28.0;
+    const right = 26.0;
+    const top = 18.0;
+    const bottom = 8.0;
+    final plotWidth = size.width - left - right;
+    final plotHeight = size.height - top - bottom;
+    double yFor(double value) => top + (1 - (value - min) / range) * plotHeight;
+
+    for (var index = 0; index < 5; index++) {
+      final guide = min + range * index / 4;
+      final y = yFor(guide);
+      final grid = Paint()
+        ..color = MColors.line
+        ..strokeWidth = 1;
+      if (index == 0) {
+        canvas.drawLine(Offset(left, y), Offset(size.width - right, y), grid);
+      } else {
+        const dash = 4.0;
+        for (var x = left; x < size.width - right; x += dash * 2) {
+          canvas.drawLine(
+            Offset(x, y),
+            Offset(math.min(x + dash, size.width - right), y),
+            grid,
+          );
+        }
+      }
+      final label = TextPainter(
+        text: TextSpan(
+          text: guide.toStringAsFixed(1),
+          style: const TextStyle(
+            color: MColors.inkFaint,
+            fontSize: 10.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(canvas, Offset(0, y - label.height / 2));
+    }
     final line = Paint()
-      ..color = MColors.terra
+      ..color = color
       ..strokeWidth = 2.5
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
@@ -3321,13 +3472,13 @@ class _GrowthChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [MColors.terra.withValues(alpha: .18), Colors.transparent],
+        colors: [color.withValues(alpha: .18), Colors.transparent],
       ).createShader(Offset.zero & size);
     final points = values.indexed.map((entry) {
       final x = values.length == 1
-          ? size.width / 2
-          : entry.$1 * size.width / (values.length - 1);
-      final y = size.height - (entry.$2.clamp(0, 5) / 5 * size.height);
+          ? left + plotWidth / 2
+          : left + entry.$1 * plotWidth / (values.length - 1);
+      final y = yFor(entry.$2.clamp(0, 5));
       return Offset(x, y);
     }).toList();
     final path = Path()..moveTo(points.first.dx, points.first.dy);
@@ -3335,150 +3486,147 @@ class _GrowthChartPainter extends CustomPainter {
       path.lineTo(point.dx, point.dy);
     }
     final area = Path.from(path)
-      ..lineTo(points.last.dx, size.height)
-      ..lineTo(points.first.dx, size.height)
+      ..lineTo(points.last.dx, top + plotHeight)
+      ..lineTo(points.first.dx, top + plotHeight)
       ..close();
     canvas
       ..drawPath(area, fill)
       ..drawPath(path, line);
-    for (final point in points) {
-      canvas.drawCircle(point, 4.5, Paint()..color = MColors.terra);
+    for (final entry in points.indexed) {
+      final isLast = entry.$1 == points.length - 1;
+      canvas.drawCircle(
+        entry.$2,
+        isLast ? 5.5 : 4,
+        Paint()..color = isLast ? color : Colors.white,
+      );
+      canvas.drawCircle(
+        entry.$2,
+        isLast ? 4.25 : 3,
+        Paint()
+          ..color = color
+          ..style = isLast ? PaintingStyle.fill : PaintingStyle.stroke
+          ..strokeWidth = 2.5,
+      );
     }
+
+    final valueLabel = TextPainter(
+      text: TextSpan(
+        text: values.last.toStringAsFixed(1),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    final last = points.last;
+    final pillWidth = valueLabel.width + 16;
+    const pillHeight = 23.0;
+    final pillLeft = (last.dx - pillWidth / 2).clamp(
+      left,
+      size.width - right - pillWidth,
+    );
+    final pillTop = math.max(0.0, last.dy - 31);
+    final pill = RRect.fromRectAndRadius(
+      Rect.fromLTWH(pillLeft, pillTop, pillWidth, pillHeight),
+      const Radius.circular(99),
+    );
+    canvas.drawRRect(pill, Paint()..color = color);
+    valueLabel.paint(
+      canvas,
+      Offset(
+        pillLeft + (pillWidth - valueLabel.width) / 2,
+        pillTop + (pillHeight - valueLabel.height) / 2,
+      ),
+    );
   }
 
   @override
   bool shouldRepaint(_GrowthChartPainter oldDelegate) =>
-      oldDelegate.values != values;
+      oldDelegate.values != values || oldDelegate.color != color;
 }
 
-class _GrowthHistoryCard extends StatefulWidget {
-  const _GrowthHistoryCard({required this.record, required this.parameter});
+class _GrowthSectionLabel extends StatelessWidget {
+  const _GrowthSectionLabel(this.label);
 
-  final GrowthRecord record;
-  final String? parameter;
+  final String label;
 
   @override
-  State<_GrowthHistoryCard> createState() => _GrowthHistoryCardState();
+  Widget build(BuildContext context) => Text(
+    label,
+    style: const TextStyle(
+      color: MColors.inkFaint,
+      fontSize: 11,
+      fontWeight: FontWeight.w800,
+      letterSpacing: 1.1,
+    ),
+  );
 }
 
-class _GrowthHistoryCardState extends State<_GrowthHistoryCard> {
-  bool _open = false;
+class _GrowthMonthCard extends StatelessWidget {
+  const _GrowthMonthCard({required this.record, required this.parameter});
+
+  final GrowthRecord record;
+  final FeedbackParam? parameter;
 
   @override
   Widget build(BuildContext context) {
-    final visible = widget.parameter == null
-        ? widget.record.parameters
-        : widget.record.parameters
-              .where((item) => item.name == widget.parameter)
-              .toList();
+    final score = parameter?.score ?? 0;
+    final note = parameter?.note ?? 'No feedback was recorded in this cycle.';
     return PressableCard(
-      onTap: () => setState(() => _open = !_open),
-      padding: EdgeInsets.zero,
+      padding: const EdgeInsets.all(16),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                const CircleAvatar(radius: 5, backgroundColor: MColors.terra),
-                const SizedBox(width: 11),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _periodTitle(widget.record.period),
-                        style: const TextStyle(
-                          color: MColors.ink,
-                          fontSize: 16.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Sent ${shortDate(widget.record.sentAt)} · ${widget.record.managerName}',
-                        style: const TextStyle(
-                          color: MColors.inkFaint,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  widget.record.overallScore.toStringAsFixed(1),
-                  style: TextStyle(
-                    color: scoreColor(widget.record.overallScore),
-                    fontSize: 17,
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _periodTitle(record.period),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MColors.inkSoft,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                Icon(
-                  _open
-                      ? Icons.keyboard_arrow_up_rounded
-                      : Icons.keyboard_arrow_down_rounded,
-                  color: MColors.inkFaint,
+              ),
+              Text(
+                score.toStringAsFixed(1),
+                style: TextStyle(
+                  color: scoreColor(score),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
                 ),
-              ],
+              ),
+              const Text(
+                '/5',
+                style: TextStyle(
+                  color: MColors.inkFaint,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 10),
+            child: Divider(height: 1, color: MColors.line),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Text(
+                note,
+                style: const TextStyle(
+                  color: MColors.inkSoft,
+                  fontSize: 13.5,
+                  height: 1.65,
+                ),
+              ),
             ),
           ),
-          if (_open)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-              decoration: const BoxDecoration(
-                border: Border(top: BorderSide(color: MColors.line)),
-              ),
-              child: Column(
-                children: visible.map((item) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                item.name,
-                                style: const TextStyle(
-                                  color: MColors.ink,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              item.score.toStringAsFixed(1),
-                              style: TextStyle(
-                                color: scoreColor(item.score),
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 7),
-                        _ProgressBar(
-                          value: item.score / 5,
-                          color: scoreColor(item.score),
-                        ),
-                        if (item.note.isNotEmpty) ...[
-                          const SizedBox(height: 7),
-                          Text(
-                            item.note,
-                            style: const TextStyle(
-                              color: MColors.inkSoft,
-                              fontSize: 13.5,
-                              height: 1.5,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
         ],
       ),
     );
@@ -3737,7 +3885,7 @@ class _AvatarActionCluster extends StatelessWidget {
   }
 }
 
-enum _RequestType { leave, overtime, reimbursement }
+enum _RequestType { leave, overtime }
 
 class _RequestList extends StatefulWidget {
   const _RequestList({
@@ -3770,20 +3918,14 @@ class _RequestListState extends State<_RequestList> {
         widget.state.dashboard!.overtime
             .where((item) => item.decision == LeaveDecision.pending)
             .length,
-      _RequestType.reimbursement =>
-        widget.state.dashboard!.reimbursements
-            .where((item) => item.status == 'Pending')
-            .length,
     };
     final close = switch (widget.type) {
       _RequestType.leave => const CloseLeaveRequests(),
       _RequestType.overtime => const CloseOvertimeRequests(),
-      _RequestType.reimbursement => const CloseReimbursementRequests(),
     };
     final title = switch (widget.type) {
       _RequestType.leave => 'Leave requests',
       _RequestType.overtime => 'Overtime requests',
-      _RequestType.reimbursement => 'Reimbursements',
     };
 
     return Column(
@@ -3858,25 +4000,7 @@ class _RequestListState extends State<_RequestList> {
                       .toList(),
                 );
               }
-              final items = widget.state.dashboard!.reimbursements
-                  .where(
-                    (item) => _reviewed
-                        ? item.status != 'Pending'
-                        : item.status == 'Pending',
-                  )
-                  .toList();
-              return _RequestListBody(
-                empty: items.isEmpty,
-                reviewed: _reviewed,
-                children: items
-                    .map(
-                      (item) => _ReimbursementRequestCard(
-                        claim: item,
-                        bloc: widget.bloc,
-                      ),
-                    )
-                    .toList(),
-              );
+              return const SizedBox.shrink();
             },
           ),
         ),
@@ -4096,9 +4220,11 @@ class _LeaveCard extends StatelessWidget {
     BuildContext context,
     LeaveDecision decision,
   ) async {
-    final confirmed = await _showLeaveDecisionSheet(context, leave, decision);
-    if (confirmed == true && context.mounted) {
-      bloc.add(DecideLeave(leave.id, decision));
+    final result = await _showLeaveDecisionSheet(context, leave, decision);
+    if (result != null && context.mounted) {
+      bloc.add(
+        DecideLeave(leave.id, decision, managerNote: result.managerNote),
+      );
     }
   }
 }
@@ -4387,9 +4513,9 @@ class _LeaveRequestDetailPage extends StatelessWidget {
   }
 
   Future<void> _decide(BuildContext context, LeaveDecision decision) async {
-    final confirmed = await _showLeaveDecisionSheet(context, leave, decision);
-    if (confirmed != true || !context.mounted) return;
-    bloc.add(DecideLeave(leave.id, decision));
+    final result = await _showLeaveDecisionSheet(context, leave, decision);
+    if (result == null || !context.mounted) return;
+    bloc.add(DecideLeave(leave.id, decision, managerNote: result.managerNote));
     Navigator.of(context).pop();
   }
 }
@@ -4499,133 +4625,193 @@ class _LeaveDetailRow extends StatelessWidget {
   );
 }
 
-Future<bool?> _showLeaveDecisionSheet(
+class _DecisionSheetResult {
+  const _DecisionSheetResult(this.managerNote);
+
+  final String managerNote;
+}
+
+Future<_DecisionSheetResult?> _showLeaveDecisionSheet(
   BuildContext context,
   LeaveRequest leave,
   LeaveDecision decision,
-) {
+) async {
   final approve = decision == LeaveDecision.approved;
   final accent = approve ? MColors.sageDeep : MColors.live;
-  return showModalBottomSheet<bool>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (sheetContext) => Container(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: MColors.line,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
+  final noteController = TextEditingController();
+  try {
+    return await showModalBottomSheet<_DecisionSheetResult>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            const SizedBox(height: 18),
-            Text(
-              approve ? 'Approve leave' : 'Decline leave',
-              style: const TextStyle(
-                color: MColors.ink,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 7),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    leave.who,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: MColors.inkSoft,
-                      fontSize: 13.5,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: MColors.line,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                _LeaveTypeChip(type: leave.type),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-              decoration: BoxDecoration(
-                color: MColors.bg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.calendar_month_rounded,
-                    size: 18,
-                    color: MColors.inkFaint,
+                  const SizedBox(height: 18),
+                  Text(
+                    approve ? 'Approve leave' : 'Decline leave',
+                    style: const TextStyle(
+                      color: MColors.ink,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      _leaveDateRange(leave),
-                      style: const TextStyle(
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          leave.who,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _LeaveTypeChip(type: leave.type),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: MColors.bg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_month_rounded,
+                          size: 18,
+                          color: MColors.inkFaint,
+                        ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            _leaveDateRange(leave),
+                            style: const TextStyle(
+                              color: MColors.ink,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${leave.days}d',
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  if (!approve) ...[
+                    const Text(
+                      'Reason for declining',
+                      style: TextStyle(
                         color: MColors.ink,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ),
-                  Text(
-                    '${leave.days}d',
-                    style: const TextStyle(
-                      color: MColors.inkSoft,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: noteController,
+                      autofocus: true,
+                      maxLength: 500,
+                      maxLines: 3,
+                      onChanged: (_) => setSheetState(() {}),
+                      decoration: _fieldDecoration(
+                        'Explain why this leave request is being declined…',
+                      ),
                     ),
+                    const SizedBox(height: 8),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 10,
+                        child: ActionButton(
+                          label: 'Cancel',
+                          background: Colors.white,
+                          foreground: MColors.inkSoft,
+                          border: MColors.line,
+                          onTap: () => Navigator.pop(sheetContext),
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        flex: 15,
+                        child: ActionButton(
+                          label: approve
+                              ? 'Confirm approve'
+                              : 'Confirm decline',
+                          icon: approve
+                              ? Icons.check_rounded
+                              : Icons.close_rounded,
+                          background:
+                              !approve && noteController.text.trim().isEmpty
+                              ? MColors.line
+                              : accent,
+                          foreground:
+                              !approve && noteController.text.trim().isEmpty
+                              ? MColors.inkFaint
+                              : Colors.white,
+                          onTap: !approve && noteController.text.trim().isEmpty
+                              ? null
+                              : () => Navigator.pop(
+                                  sheetContext,
+                                  _DecisionSheetResult(
+                                    noteController.text.trim(),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  flex: 10,
-                  child: ActionButton(
-                    label: 'Cancel',
-                    background: Colors.white,
-                    foreground: MColors.inkSoft,
-                    border: MColors.line,
-                    onTap: () => Navigator.pop(sheetContext, false),
-                  ),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  flex: 15,
-                  child: ActionButton(
-                    label: approve ? 'Confirm approve' : 'Confirm decline',
-                    icon: approve ? Icons.check_rounded : Icons.close_rounded,
-                    background: accent,
-                    foreground: Colors.white,
-                    onTap: () => Navigator.pop(sheetContext, true),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  } finally {
+    noteController.dispose();
+  }
 }
 
 String _leaveDateRange(LeaveRequest leave) {
@@ -4774,7 +4960,7 @@ class _OvertimeRequestCard extends StatelessWidget {
     BuildContext context,
     LeaveDecision decision,
   ) async {
-    final confirmed = await _showRequestDecisionSheet(
+    final result = await _showRequestDecisionSheet(
       context,
       approve: decision == LeaveDecision.approved,
       requestName: 'overtime',
@@ -4786,157 +4972,10 @@ class _OvertimeRequestCard extends StatelessWidget {
       value: _managerDate(request.workDate),
       trailing: request.hours > 0 ? '${request.hours} hrs' : request.duration,
     );
-    if (confirmed == true && context.mounted) {
-      bloc.add(DecideOvertime(request.id, decision));
-    }
-  }
-}
-
-class _ReimbursementRequestCard extends StatelessWidget {
-  const _ReimbursementRequestCard({required this.claim, required this.bloc});
-
-  final ReimbursementClaim claim;
-  final ManagerBloc bloc;
-
-  @override
-  Widget build(BuildContext context) {
-    return PressableCard(
-      onTap: () => _openDetails(context),
-      padding: EdgeInsets.zero,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    AvatarBadge(
-                      initial: _nameInitials(claim.who),
-                      index: claim.who.hashCode.abs() % avatarColors.length,
-                      size: 42,
-                    ),
-                    const SizedBox(width: 11),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            claim.who,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: MColors.ink,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 15.5,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${claim.team} · applied ${daysAgo(claim.createdAt)} ago',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: MColors.inkFaint,
-                              fontSize: 12.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    claim.status == 'Pending'
-                        ? _RequestChip(
-                            label: claim.category,
-                            foreground: MColors.teal,
-                            background: const Color(0xFFE4F3F0),
-                          )
-                        : _ReimbursementStatusPill(status: claim.status),
-                  ],
-                ),
-                const SizedBox(height: 13),
-                _RequestHighlightPanel(
-                  icon: Icons.receipt_long_rounded,
-                  value: _reimbursementAmount(claim.amount),
-                  trailing: _managerDate(claim.expenseDate),
-                  foreground: MColors.teal,
-                  background: const Color(0xFFE4F3F0),
-                ),
-                if (claim.note.isNotEmpty) ...[
-                  const SizedBox(height: 11),
-                  Text(
-                    claim.note,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: MColors.inkSoft,
-                      fontSize: 13.5,
-                      height: 1.55,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (claim.status == 'Pending')
-            Padding(
-              padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: ActionButton(
-                      label: 'Decline',
-                      icon: Icons.close_rounded,
-                      background: Colors.white,
-                      foreground: MColors.inkSoft,
-                      border: MColors.line,
-                      onTap: () => _confirmDecision(context, 'declined'),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ActionButton(
-                      label: 'Approve',
-                      icon: Icons.check_rounded,
-                      background: MColors.sageDeep,
-                      foreground: Colors.white,
-                      onTap: () => _confirmDecision(context, 'approved'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _openDetails(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            _ReimbursementRequestDetailPage(claim: claim, bloc: bloc),
-      ),
-    );
-  }
-
-  Future<void> _confirmDecision(BuildContext context, String decision) async {
-    final confirmed = await _showRequestDecisionSheet(
-      context,
-      approve: decision == 'approved',
-      requestName: 'reimbursement',
-      person: claim.who,
-      chipLabel: claim.category,
-      chipForeground: MColors.teal,
-      chipBackground: const Color(0xFFE4F3F0),
-      icon: Icons.receipt_long_rounded,
-      value: _reimbursementAmount(claim.amount),
-      trailing: _managerDate(claim.expenseDate),
-    );
-    if (confirmed == true && context.mounted) {
-      bloc.add(DecideReimbursement(claim.id, decision));
+    if (result != null && context.mounted) {
+      bloc.add(
+        DecideOvertime(request.id, decision, managerNote: result.managerNote),
+      );
     }
   }
 }
@@ -5026,44 +5065,6 @@ class _RequestHighlightPanel extends StatelessWidget {
   );
 }
 
-class _ReimbursementStatusPill extends StatelessWidget {
-  const _ReimbursementStatusPill({required this.status});
-
-  final String status;
-
-  @override
-  Widget build(BuildContext context) {
-    final declined = status == 'Declined';
-    final color = declined ? MColors.live : MColors.sageDeep;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: declined ? const Color(0xFFFBE6E3) : MColors.sageTint,
-        borderRadius: BorderRadius.circular(99),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            declined ? Icons.close_rounded : Icons.check_rounded,
-            size: 13,
-            color: color,
-          ),
-          const SizedBox(width: 5),
-          Text(
-            status,
-            style: TextStyle(
-              color: color,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _OvertimeRequestDetailPage extends StatelessWidget {
   const _OvertimeRequestDetailPage({required this.request, required this.bloc});
 
@@ -5110,7 +5111,7 @@ class _OvertimeRequestDetailPage extends StatelessWidget {
   );
 
   Future<void> _decide(BuildContext context, LeaveDecision decision) async {
-    final confirmed = await _showRequestDecisionSheet(
+    final result = await _showRequestDecisionSheet(
       context,
       approve: decision == LeaveDecision.approved,
       requestName: 'overtime',
@@ -5122,83 +5123,10 @@ class _OvertimeRequestDetailPage extends StatelessWidget {
       value: _managerDate(request.workDate),
       trailing: request.hours > 0 ? '${request.hours} hrs' : request.duration,
     );
-    if (confirmed != true || !context.mounted) return;
-    bloc.add(DecideOvertime(request.id, decision));
-    Navigator.of(context).pop();
-  }
-}
-
-class _ReimbursementRequestDetailPage extends StatelessWidget {
-  const _ReimbursementRequestDetailPage({
-    required this.claim,
-    required this.bloc,
-  });
-
-  final ReimbursementClaim claim;
-  final ManagerBloc bloc;
-
-  @override
-  Widget build(BuildContext context) => _ManagerRequestDetailPage(
-    title: 'Reimbursement claim',
-    person: claim.who,
-    team: claim.team,
-    initial: _nameInitials(claim.who),
-    avatarIndex: claim.who.hashCode.abs() % avatarColors.length,
-    requestedOn: claim.createdAt,
-    chip: claim.status == 'Pending'
-        ? _RequestChip(
-            label: claim.category,
-            foreground: MColors.teal,
-            background: const Color(0xFFE4F3F0),
-            large: true,
-          )
-        : _ReimbursementStatusPill(status: claim.status),
-    primaryLabel: 'AMOUNT',
-    primaryValue: _reimbursementAmount(claim.amount),
-    primaryForeground: MColors.teal,
-    primaryBackground: const Color(0xFFE4F3F0),
-    secondaryLabel: 'EXPENSE DATE',
-    secondaryValue: _managerDate(claim.expenseDate),
-    noteLabel: claim.note.isEmpty ? null : 'NOTE',
-    note: claim.note.isEmpty ? null : claim.note,
-    details: [
-      (Icons.category_outlined, 'Category', claim.category),
-      if (claim.receiptName.isNotEmpty)
-        (Icons.attach_file_rounded, 'Receipt', claim.receiptName),
-      (Icons.schedule_rounded, 'Requested', '${daysAgo(claim.createdAt)} ago'),
-    ],
-    pending: claim.status == 'Pending',
-    onDecline: () => _decide(context, 'declined'),
-    onApprove: () => _decide(context, 'approved'),
-    footerAction: claim.status == 'Approved'
-        ? ActionButton(
-            label: 'Mark as paid',
-            icon: Icons.payments_outlined,
-            background: MColors.sageDeep,
-            foreground: Colors.white,
-            onTap: () {
-              bloc.add(DecideReimbursement(claim.id, 'paid'));
-              Navigator.of(context).pop();
-            },
-          )
-        : null,
-  );
-
-  Future<void> _decide(BuildContext context, String decision) async {
-    final confirmed = await _showRequestDecisionSheet(
-      context,
-      approve: decision == 'approved',
-      requestName: 'reimbursement',
-      person: claim.who,
-      chipLabel: claim.category,
-      chipForeground: MColors.teal,
-      chipBackground: const Color(0xFFE4F3F0),
-      icon: Icons.receipt_long_rounded,
-      value: _reimbursementAmount(claim.amount),
-      trailing: _managerDate(claim.expenseDate),
+    if (result == null || !context.mounted) return;
+    bloc.add(
+      DecideOvertime(request.id, decision, managerNote: result.managerNote),
     );
-    if (confirmed != true || !context.mounted) return;
-    bloc.add(DecideReimbursement(claim.id, decision));
     Navigator.of(context).pop();
   }
 }
@@ -5224,7 +5152,6 @@ class _ManagerRequestDetailPage extends StatelessWidget {
     required this.onApprove,
     this.noteLabel,
     this.note,
-    this.footerAction,
   });
 
   final String title;
@@ -5246,7 +5173,6 @@ class _ManagerRequestDetailPage extends StatelessWidget {
   final VoidCallback onApprove;
   final String? noteLabel;
   final String? note;
-  final Widget? footerAction;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -5370,7 +5296,7 @@ class _ManagerRequestDetailPage extends StatelessWidget {
             ],
           ),
         ),
-        if (pending || footerAction != null)
+        if (pending)
           Container(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: const BoxDecoration(
@@ -5379,34 +5305,32 @@ class _ManagerRequestDetailPage extends StatelessWidget {
             ),
             child: SafeArea(
               top: false,
-              child: pending
-                  ? Row(
-                      children: [
-                        Expanded(
-                          flex: 10,
-                          child: ActionButton(
-                            label: 'Decline',
-                            icon: Icons.close_rounded,
-                            background: Colors.white,
-                            foreground: MColors.inkSoft,
-                            border: MColors.line,
-                            onTap: onDecline,
-                          ),
-                        ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          flex: 14,
-                          child: ActionButton(
-                            label: 'Approve',
-                            icon: Icons.check_rounded,
-                            background: MColors.sageDeep,
-                            foreground: Colors.white,
-                            onTap: onApprove,
-                          ),
-                        ),
-                      ],
-                    )
-                  : footerAction!,
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 10,
+                    child: ActionButton(
+                      label: 'Decline',
+                      icon: Icons.close_rounded,
+                      background: Colors.white,
+                      foreground: MColors.inkSoft,
+                      border: MColors.line,
+                      onTap: onDecline,
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    flex: 14,
+                    child: ActionButton(
+                      label: 'Approve',
+                      icon: Icons.check_rounded,
+                      background: MColors.sageDeep,
+                      foreground: Colors.white,
+                      onTap: onApprove,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -5414,7 +5338,7 @@ class _ManagerRequestDetailPage extends StatelessWidget {
   );
 }
 
-Future<bool?> _showRequestDecisionSheet(
+Future<_DecisionSheetResult?> _showRequestDecisionSheet(
   BuildContext context, {
   required bool approve,
   required String requestName,
@@ -5425,133 +5349,182 @@ Future<bool?> _showRequestDecisionSheet(
   required IconData icon,
   required String value,
   required String trailing,
-}) {
+}) async {
   final accent = approve ? MColors.sageDeep : MColors.live;
-  return showModalBottomSheet<bool>(
-    context: context,
-    backgroundColor: Colors.transparent,
-    isScrollControlled: true,
-    builder: (sheetContext) => Container(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 38,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: MColors.line,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
+  final noteController = TextEditingController();
+  try {
+    return await showModalBottomSheet<_DecisionSheetResult>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            const SizedBox(height: 18),
-            Text(
-              '${approve ? 'Approve' : 'Decline'} $requestName',
-              style: const TextStyle(
-                color: MColors.ink,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 7),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    person,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: MColors.inkSoft,
-                      fontSize: 13.5,
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: MColors.line,
+                        borderRadius: BorderRadius.circular(99),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                _RequestChip(
-                  label: chipLabel,
-                  foreground: chipForeground,
-                  background: chipBackground,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-              decoration: BoxDecoration(
-                color: MColors.bg,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  Icon(icon, size: 18, color: MColors.inkFaint),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      value,
-                      style: const TextStyle(
+                  const SizedBox(height: 18),
+                  Text(
+                    '${approve ? 'Approve' : 'Decline'} $requestName',
+                    style: const TextStyle(
+                      color: MColors.ink,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          person,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      _RequestChip(
+                        label: chipLabel,
+                        foreground: chipForeground,
+                        background: chipBackground,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 13,
+                      vertical: 11,
+                    ),
+                    decoration: BoxDecoration(
+                      color: MColors.bg,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(icon, size: 18, color: MColors.inkFaint),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Text(
+                            value,
+                            style: const TextStyle(
+                              color: MColors.ink,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          trailing,
+                          style: const TextStyle(
+                            color: MColors.inkSoft,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  if (!approve) ...[
+                    const Text(
+                      'Reason for declining',
+                      style: TextStyle(
                         color: MColors.ink,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                  ),
-                  Text(
-                    trailing,
-                    style: const TextStyle(
-                      color: MColors.inkSoft,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: noteController,
+                      autofocus: true,
+                      maxLength: 500,
+                      maxLines: 3,
+                      onChanged: (_) => setSheetState(() {}),
+                      decoration: _fieldDecoration(
+                        'Explain why this overtime request is being declined…',
+                      ),
                     ),
+                    const SizedBox(height: 8),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 10,
+                        child: ActionButton(
+                          label: 'Cancel',
+                          background: Colors.white,
+                          foreground: MColors.inkSoft,
+                          border: MColors.line,
+                          onTap: () => Navigator.pop(sheetContext),
+                        ),
+                      ),
+                      const SizedBox(width: 11),
+                      Expanded(
+                        flex: 15,
+                        child: ActionButton(
+                          label: approve
+                              ? 'Confirm approve'
+                              : 'Confirm decline',
+                          icon: approve
+                              ? Icons.check_rounded
+                              : Icons.close_rounded,
+                          background:
+                              !approve && noteController.text.trim().isEmpty
+                              ? MColors.line
+                              : accent,
+                          foreground:
+                              !approve && noteController.text.trim().isEmpty
+                              ? MColors.inkFaint
+                              : Colors.white,
+                          onTap: !approve && noteController.text.trim().isEmpty
+                              ? null
+                              : () => Navigator.pop(
+                                  sheetContext,
+                                  _DecisionSheetResult(
+                                    noteController.text.trim(),
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  flex: 10,
-                  child: ActionButton(
-                    label: 'Cancel',
-                    background: Colors.white,
-                    foreground: MColors.inkSoft,
-                    border: MColors.line,
-                    onTap: () => Navigator.pop(sheetContext, false),
-                  ),
-                ),
-                const SizedBox(width: 11),
-                Expanded(
-                  flex: 15,
-                  child: ActionButton(
-                    label: approve ? 'Confirm approve' : 'Confirm decline',
-                    icon: approve ? Icons.check_rounded : Icons.close_rounded,
-                    background: accent,
-                    foreground: Colors.white,
-                    onTap: () => Navigator.pop(sheetContext, true),
-                  ),
-                ),
-              ],
-            ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
-}
-
-String _reimbursementAmount(double amount) {
-  final whole = amount == amount.roundToDouble();
-  return '₹${amount.toStringAsFixed(whole ? 0 : 2)}';
+    );
+  } finally {
+    noteController.dispose();
+  }
 }
 
 class _AwardCard extends StatelessWidget {
@@ -5929,14 +5902,18 @@ class _ParamCard extends StatefulWidget {
   const _ParamCard({
     required this.param,
     required this.locked,
+    required this.listening,
     required this.onScore,
     required this.onNote,
+    required this.onVoice,
   });
 
   final FeedbackParam param;
   final bool locked;
+  final bool listening;
   final ValueChanged<double> onScore;
   final ValueChanged<String> onNote;
+  final VoidCallback onVoice;
 
   @override
   State<_ParamCard> createState() => _ParamCardState();
@@ -6077,7 +6054,11 @@ class _ParamCardState extends State<_ParamCard> {
             onChanged: widget.onNote,
             decoration: _fieldDecoration(
               'Add a note — type or record by voice…',
-              suffix: Icons.mic_none_rounded,
+              suffix: widget.listening
+                  ? Icons.mic_rounded
+                  : Icons.mic_none_rounded,
+              suffixActive: widget.listening,
+              onSuffixTap: widget.locked ? null : widget.onVoice,
             ),
           ),
         ],
@@ -6771,13 +6752,26 @@ class _StatusPill extends StatelessWidget {
   }
 }
 
-InputDecoration _fieldDecoration(String hint, {IconData? suffix}) {
+InputDecoration _fieldDecoration(
+  String hint, {
+  IconData? suffix,
+  VoidCallback? onSuffixTap,
+  bool suffixActive = false,
+}) {
   return InputDecoration(
     hintText: hint,
     hintStyle: const TextStyle(color: MColors.inkFaint),
     suffixIcon: suffix == null
         ? null
-        : Icon(suffix, color: MColors.terra, size: 18),
+        : IconButton(
+            tooltip: suffixActive ? 'Stop listening' : 'Dictate feedback',
+            onPressed: onSuffixTap,
+            icon: Icon(
+              suffix,
+              color: suffixActive ? MColors.live : MColors.terra,
+              size: 19,
+            ),
+          ),
     filled: true,
     fillColor: Colors.white,
     contentPadding: const EdgeInsets.all(13),

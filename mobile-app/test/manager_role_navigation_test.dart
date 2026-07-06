@@ -44,14 +44,6 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(bloc.state.view, ManagerView.home);
 
-    bloc.add(const OpenReimbursementRequests());
-    await Future<void>.delayed(Duration.zero);
-    expect(bloc.state.view, ManagerView.reimbursementRequests);
-
-    bloc.add(const CloseReimbursementRequests());
-    await Future<void>.delayed(Duration.zero);
-    expect(bloc.state.view, ManagerView.home);
-
     bloc.dispose();
   });
 }

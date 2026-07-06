@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -26,9 +27,6 @@ class ManagerApiService {
     final myOvertimeFuture = fetchMyOvertime();
     final overtimeFuture = fetchManagerOvertime();
     final reimbursementsFuture = fetchMyReimbursements();
-    final reimbursementInboxFuture = session.user.role == 'manager'
-        ? fetchManagerReimbursements()
-        : Future.value(const <ReimbursementClaim>[]);
     final workspace = await workspaceFuture;
     final teamValues = workspace['team'] as List<dynamic>? ?? const [];
     final team = teamValues.indexed.map((entry) {
@@ -83,7 +81,6 @@ class ManagerApiService {
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
       myReimbursements: await reimbursementsFuture,
-      reimbursements: await reimbursementInboxFuture,
     );
   }
 
@@ -125,11 +122,12 @@ class ManagerApiService {
   Future<LeaveRequest> decideLeave(
     String leaveId,
     LeaveDecision decision,
+    String managerNote,
   ) async {
     final json = await _request(
       'PATCH',
       '/leaves/$leaveId/decision',
-      body: {'decision': decision.name},
+      body: {'decision': decision.name, 'managerNote': managerNote},
     );
     return LeaveRequest.fromJson(json['leave'] as Map<String, dynamic>);
   }
@@ -193,11 +191,12 @@ class ManagerApiService {
   Future<OvertimeRequest> decideOvertimeRequest(
     String overtimeId,
     LeaveDecision decision,
+    String managerNote,
   ) async {
     final json = await _request(
       'PATCH',
       '/overtime/$overtimeId/decision',
-      body: {'decision': decision.name},
+      body: {'decision': decision.name, 'managerNote': managerNote},
     );
     return OvertimeRequest.fromJson(json['overtime'] as Map<String, dynamic>);
   }
@@ -212,23 +211,34 @@ class ManagerApiService {
         .toList();
   }
 
-  Future<List<ReimbursementClaim>> fetchManagerReimbursements() async {
-    final json = await _request('GET', '/reimbursements/inbox');
-    final values = json['claims'] as List<dynamic>? ?? const [];
-    return values
-        .map(
-          (value) => ReimbursementClaim.fromJson(value as Map<String, dynamic>),
-        )
-        .toList();
-  }
-
   Future<ReimbursementClaim> submitReimbursement({
     required DateTime expenseDate,
     required String amount,
     required String category,
     required String receiptName,
+    Uint8List? receiptBytes,
     required String note,
   }) async {
+    if (receiptBytes != null && receiptName.isNotEmpty) {
+      final request =
+          http.MultipartRequest('POST', Uri.parse('$_baseUrl/reimbursements'))
+            ..headers['Authorization'] = 'Bearer ${session.token}'
+            ..fields.addAll({
+              'expenseDate': _dateOnly(expenseDate),
+              'amount': amount.replaceAll(',', ''),
+              'category': category.toLowerCase(),
+              'note': note,
+            })
+            ..files.add(
+              http.MultipartFile.fromBytes(
+                'receipt',
+                receiptBytes,
+                filename: receiptName,
+              ),
+            );
+      final json = await _send(request);
+      return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
+    }
     final json = await _request(
       'POST',
       '/reimbursements',
@@ -239,18 +249,6 @@ class ManagerApiService {
         'receiptName': receiptName,
         'note': note,
       },
-    );
-    return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
-  }
-
-  Future<ReimbursementClaim> decideReimbursement(
-    String claimId,
-    String decision,
-  ) async {
-    final json = await _request(
-      'PATCH',
-      '/reimbursements/$claimId/decision',
-      body: {'decision': decision.toLowerCase()},
     );
     return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
   }
@@ -267,6 +265,10 @@ class ManagerApiService {
       });
     if (body != null) request.body = jsonEncode(body);
 
+    return _send(request);
+  }
+
+  Future<Map<String, dynamic>> _send(http.BaseRequest request) async {
     final streamed = await _client.send(request);
     final response = await http.Response.fromStream(streamed);
     final json = response.body.isEmpty
