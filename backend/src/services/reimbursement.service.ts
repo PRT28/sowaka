@@ -1,8 +1,13 @@
 import { ObjectId } from 'mongodb';
+import { env } from '../config/env';
 import { reimbursementClaims, users } from '../config/db';
 import { ReimbursementClaim, ReimbursementStatus } from '../models/reimbursement.model';
 import { User } from '../models/user.model';
-import { deleteReimbursementReceipt, uploadReimbursementReceipt } from './s3-receipt.service';
+import {
+  deleteReimbursementReceipt,
+  presignReceiptDownload,
+  uploadReimbursementReceipt,
+} from './s3-receipt.service';
 
 const categories = new Set<ReimbursementClaim['category']>([
   'travel',
@@ -141,6 +146,20 @@ export async function decideReimbursement(
   );
   if (!updated) throw new ReimbursementError(409, 'Reimbursement claim has already been decided');
   return toView(updated, employee);
+}
+
+/// Presigned URL so the claim owner or their manager can view the stored bill.
+export async function getReceiptDownloadUrl(requesterUserId: string, claimIdInput: string) {
+  if (!ObjectId.isValid(claimIdInput)) throw new ReimbursementError(400, 'Invalid claim ID');
+  const claim = await reimbursementClaims().findOne({ _id: new ObjectId(claimIdInput) });
+  if (!claim) throw new ReimbursementError(404, 'Reimbursement claim not found');
+  if (requesterUserId !== claim.userId && requesterUserId !== claim.managerUserId) {
+    throw new ReimbursementError(403, 'You are not allowed to view this receipt');
+  }
+  if (!claim.receiptObjectKey) throw new ReimbursementError(404, 'This claim has no receipt');
+  const receiptName = claim.receiptName ?? 'receipt';
+  const url = await presignReceiptDownload(claim.receiptObjectKey, receiptName);
+  return { url, receiptName, expiresIn: env.s3.presignTtl };
 }
 
 function toView(claim: ReimbursementClaim & { _id: ObjectId }, employee: User) {

@@ -74,6 +74,7 @@ export function adaptReimb(dto: ClaimDTO, managerName: string): Reimb {
     applyDate: fmtDay(dto.createdAt),
     status: cap(dto.status) as ReqStatus,
     bill: dto.receiptName || '—',
+    hasBill: Boolean(dto.hasReceipt),
     ord: ts(dto.createdAt),
     mRemark: '',
   };

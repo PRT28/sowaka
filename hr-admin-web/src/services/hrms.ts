@@ -38,6 +38,7 @@ export type ClaimDTO = {
   amount: number;
   category: 'travel' | 'meals' | 'internet' | 'other';
   receiptName?: string;
+  hasReceipt?: boolean;
   note?: string;
   status: 'pending' | 'approved' | 'declined' | 'paid';
   createdAt: string;
@@ -95,6 +96,12 @@ export const decideReimb = (id: string, decision: 'approved' | 'declined' | 'pai
     method: 'PATCH',
     body: { decision },
   }).then((r) => r.claim);
+
+// Presigned URL to view the uploaded bill for a claim.
+export const getReimbReceiptUrl = (id: string) =>
+  api<{ receipt: { url: string; receiptName: string } }>(`/reimbursements/${id}/receipt-url`).then(
+    (r) => r.receipt,
+  );
 
 // ---- Manager workspace (feedback + team) ----
 export const getWorkspace = () => api<WorkspaceDTO>('/manager/workspace');
