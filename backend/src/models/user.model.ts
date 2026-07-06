@@ -19,6 +19,11 @@ export interface EmployeeDocument {
   uploadedAt?: Date;
 }
 
+export interface UserRecognition {
+  label: string;
+  period: string;
+}
+
 /**
  * Master user / employee record. Created (minimally) on first login by the auth
  * flow and enriched by HR. Identity for the rest of the system is `userId`.
@@ -33,8 +38,11 @@ export interface User {
   endDate?: Date | null;
   documents?: EmployeeDocument[];
   lifecycleStatus: UserLifecycleStatus;
+  profilePhotoUrl?: string;
+  location?: string;
   designation?: string;
   department?: string;
+  teamDescription?: string;
   managerUserId?: string; // -> User.userId
   org?: string; // -> Company.id
   hrPrimaryUserId?: string; // -> User.userId
@@ -43,6 +51,7 @@ export interface User {
   noticeStatus?: NoticeStatus;
   leaveBalance?: number;
   branch?: string;
+  recognition?: UserRecognition;
   role?: 'manager' | 'employee';
   createdAt?: number;
   updatedAt?: Date;

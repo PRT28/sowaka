@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../config/env';
-import { authSessions, otpChallenges, users } from '../config/db';
+import { authSessions, companies, otpChallenges, users } from '../config/db';
 import { AuthUser } from '../models/auth.model';
 import { User } from '../models/user.model';
 import { generateOtp, hashOtp, isValidEmail } from '../utils/otp.util';
@@ -93,6 +93,18 @@ export async function revokeSession(token: string): Promise<void> {
   }
 }
 
+export async function getCurrentAuthUser(userId: string): Promise<AuthUser> {
+  const user = await users().findOne({ userId });
+  if (!user || user.lifecycleStatus === 'offboarded' || user.lifecycleStatus === 'terminated') {
+    throw new AuthError(401, 'User is not active');
+  }
+
+  const role = (await users().countDocuments({ managerUserId: user.userId }, { limit: 1 }))
+    ? 'manager'
+    : 'employee';
+  return toAuthUser({ ...user, role });
+}
+
 export function hashSessionToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
@@ -126,14 +138,35 @@ async function completeLogin(user: User): Promise<AuthUser> {
   return toAuthUser({ ...user, role });
 }
 
-function toAuthUser(user: User): AuthUser {
+async function toAuthUser(user: User): Promise<AuthUser> {
+  const [company, manager] = await Promise.all([
+    user.org ? companies().findOne({ id: user.org }) : null,
+    user.managerUserId ? users().findOne({ userId: user.managerUserId }) : null,
+  ]);
+
   return {
     id: user.userId,
     email: user.email,
     name: user.name,
     role: user.role ?? 'employee',
-    company: user.org ?? defaultCompany,
+    company: company?.name ?? user.org ?? defaultCompany,
+    profilePhotoUrl: user.profilePhotoUrl,
+    location: user.location ?? user.branch,
+    designation: user.designation,
+    employmentType: user.employeeType,
+    department: user.department,
+    teamDescription: user.teamDescription,
+    managerName: manager?.name,
+    joiningDate: toIsoDate(user.joiningDate),
+    birthday: toIsoDate(user.birthday),
+    recognition: user.recognition,
   };
+}
+
+function toIsoDate(value: Date | undefined): string | undefined {
+  if (!value) return undefined;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
 function timingSafeEqualHex(a: string, b: string): boolean {

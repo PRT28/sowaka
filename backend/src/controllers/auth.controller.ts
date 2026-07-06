@@ -1,5 +1,10 @@
 import { NextFunction, Request, Response } from 'express';
-import { requestLoginOtp, revokeSession, verifyLoginOtp } from '../services/auth.service';
+import {
+  getCurrentAuthUser,
+  requestLoginOtp,
+  revokeSession,
+  verifyLoginOtp,
+} from '../services/auth.service';
 
 export async function requestOtp(req: Request, res: Response, next: NextFunction) {
   try {
@@ -18,6 +23,15 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
   try {
     await revokeSession(req.auth?.token ?? '');
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function currentUser(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = await getCurrentAuthUser(req.auth?.userId ?? '');
+    res.status(200).json({ success: true, user });
   } catch (error) {
     next(error);
   }

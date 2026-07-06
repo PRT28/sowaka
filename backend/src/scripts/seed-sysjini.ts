@@ -26,12 +26,26 @@ async function seed(): Promise<void> {
     name: 'Prithviraj Tiwari',
     employeeId: 'SYS-001',
     role: 'employee',
+    designation: 'Software Engineer',
+    department: 'Engineering',
+    location: 'Bengaluru, India',
+    joiningDate: new Date('2024-06-10T00:00:00.000Z'),
+    birthday: new Date('1998-08-18T00:00:00.000Z'),
+    teamDescription: 'Building reliable products and internal platforms for Sysjini.',
+    recognition: { label: 'Rising Star', period: 'Q2 2026' },
   });
   const manager = createUser({
     email: managerEmail,
     name: 'Prithvi Raj',
     employeeId: 'SYS-002',
     role: 'manager',
+    designation: 'Engineering Manager',
+    department: 'Engineering',
+    location: 'Bengaluru, India',
+    joiningDate: new Date('2022-01-17T00:00:00.000Z'),
+    birthday: new Date('1992-03-12T00:00:00.000Z'),
+    teamDescription: 'A product engineering team focused on dependable, human-centred software.',
+    recognition: { label: 'People Champion', period: 'Q2 2026' },
   });
 
   for (const user of [employee, manager]) {
@@ -47,6 +61,14 @@ async function seed(): Promise<void> {
           onboardingStatus: user.onboardingStatus,
           role: user.role,
           org: user.org,
+          location: user.location,
+          designation: user.designation,
+          department: user.department,
+          teamDescription: user.teamDescription,
+          employeeType: user.employeeType,
+          joiningDate: user.joiningDate,
+          birthday: user.birthday,
+          recognition: user.recognition,
           updatedAt: now,
         },
         $setOnInsert: { createdAt: Date.now() },
@@ -69,6 +91,13 @@ function createUser(input: {
   name: string;
   employeeId: string;
   role: 'manager' | 'employee';
+  designation: string;
+  department: string;
+  location: string;
+  joiningDate: Date;
+  birthday: Date;
+  teamDescription: string;
+  recognition: { label: string; period: string };
 }): User {
   return {
     ...input,
