@@ -9,6 +9,8 @@ export type AuthUser = {
   name: string;
   role: 'manager' | 'employee';
   company: string;
+  dashboardAccess?: boolean;
+  isLeadership?: boolean;
 };
 
 export function getStoredUser(): AuthUser | null {

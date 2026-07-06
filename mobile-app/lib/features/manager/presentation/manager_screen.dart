@@ -1550,7 +1550,9 @@ class _OwnLeaveCard extends StatelessWidget {
           Icon(icon, size: 18, color: color),
           const SizedBox(width: 5),
           Text(
-            label,
+            leave.decidedByAdmin && leave.decision != LeaveDecision.pending
+                ? '$label by admin'
+                : label,
             style: TextStyle(
               color: color,
               fontSize: 12,

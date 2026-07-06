@@ -17,6 +17,8 @@ export type Leave = {
   ord: number;
   eRemark: string;
   mRemark: string;
+  submitterId?: string;
+  byAdmin?: boolean;
 };
 
 export type Overtime = {
@@ -31,6 +33,8 @@ export type Overtime = {
   manager: string;
   mRemark: string;
   ord: number;
+  submitterId?: string;
+  byAdmin?: boolean;
 };
 
 export type FbMgr = {
@@ -70,6 +74,8 @@ export type Reimb = {
   hasBill?: boolean;
   ord: number;
   mRemark: string;
+  submitterId?: string;
+  byAdmin?: boolean;
 };
 
 export type Emp = {

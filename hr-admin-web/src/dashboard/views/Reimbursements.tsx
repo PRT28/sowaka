@@ -101,7 +101,7 @@ export function Reimbursements() {
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.applyDate}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.manager}</div>
               <div>
-                <Pill label={r.status} tone={STAT[r.status]} />
+                <Pill label={r.byAdmin ? `${r.status} · by admin` : r.status} tone={STAT[r.status]} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7 }} onClick={(e) => e.stopPropagation()}>
                 <button onClick={() => s.setRbBillId(r.id)} title="View bill" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

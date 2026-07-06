@@ -608,6 +608,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
                   '${entry.$2.category} · ${_money(entry.$2.amount)}',
                   '${entry.$2.note.isEmpty ? 'Expense claim' : entry.$2.note} · ${_short(entry.$2.expenseDate)}',
                   entry.$2.status,
+                  statusLabel: entry.$2.statusLabel,
                   icon: Icons.receipt_long_rounded,
                   color: _Q.teal,
                   tint: _Q.tealTint,
@@ -1495,6 +1496,7 @@ class _RequestRow extends StatelessWidget {
     this.title,
     this.subtitle,
     this.status, {
+    this.statusLabel,
     this.icon,
     this.color = _Q.terra,
     this.tint = _Q.terraTint,
@@ -1504,6 +1506,8 @@ class _RequestRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final String status;
+  // Optional display text (e.g. "Approved by admin"); color still keys off `status`.
+  final String? statusLabel;
   final IconData? icon;
   final Color color;
   final Color tint;
@@ -1546,7 +1550,7 @@ class _RequestRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(99),
             ),
             child: Text(
-              status,
+              statusLabel ?? status,
               style: TextStyle(
                 color: statusColor,
                 fontSize: 11,

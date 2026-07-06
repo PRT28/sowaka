@@ -76,7 +76,7 @@ export function Overtime() {
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.day}</div>
             <div>
-              <Pill label={r.status} tone={STAT[r.status]} />
+              <Pill label={r.byAdmin ? `${r.status} · by admin` : r.status} tone={STAT[r.status]} />
             </div>
           </div>
         ))}

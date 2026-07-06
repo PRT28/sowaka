@@ -13,6 +13,7 @@ export interface ReimbursementClaim {
   note?: string;
   status: ReimbursementStatus;
   decidedByUserId?: string;
+  decidedByRole?: 'manager' | 'admin'; // reimbursements are always decided from the dashboard ('admin')
   decidedAt?: Date;
   paidAt?: Date;
   createdAt: Date;

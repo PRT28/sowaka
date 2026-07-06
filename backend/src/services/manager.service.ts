@@ -48,14 +48,9 @@ export async function getManagerWorkspace(managerUserId: string) {
     })
     .sort({ name: 1, userId: 1 })
     .toArray();
-  const recognitionCandidates = await users()
-    .find({
-      ...(manager.org ? { org: manager.org } : { managerUserId }),
-      userId: { $ne: managerUserId },
-      lifecycleStatus: { $nin: ['offboarded', 'terminated'] },
-    })
-    .sort({ name: 1, userId: 1 })
-    .toArray();
+  // Recognition is limited to the manager's own direct reports — same set as
+  // `reports`, so reuse it (no org-wide or upward-chain nominations).
+  const recognitionCandidates = reports;
   const period = currentPeriod();
   const reportIds = reports.map((report) => report.userId);
   const [currentFeedback, latestSent, nominations, ownFeedbackHistory] = await Promise.all([

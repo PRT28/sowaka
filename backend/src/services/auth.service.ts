@@ -160,6 +160,8 @@ async function toAuthUser(user: User): Promise<AuthUser> {
     joiningDate: toIsoDate(user.joiningDate),
     birthday: toIsoDate(user.birthday),
     recognition: user.recognition,
+    dashboardAccess: user.dashboardAccess === true,
+    isLeadership: user.isLeadership === true,
   };
 }
 

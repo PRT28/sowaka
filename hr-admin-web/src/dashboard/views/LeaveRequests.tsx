@@ -102,7 +102,7 @@ export function LeaveRequests() {
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.days}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.manager}</div>
             <div>
-              <Pill label={r.status} tone={STAT[r.status]} />
+              <Pill label={r.byAdmin ? `${r.status} · by admin` : r.status} tone={STAT[r.status]} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
               <button

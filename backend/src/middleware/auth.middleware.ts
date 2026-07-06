@@ -42,7 +42,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    req.auth = { userId: session.userId, token };
+    req.auth = { userId: session.userId, token, dashboardAccess: user.dashboardAccess === true };
     next();
   } catch (error) {
     next(error);
