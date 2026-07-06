@@ -33,6 +33,24 @@ function ts(iso: string): number {
 
 const cap = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
+/** Inclusive date-range test on a row's canonical ISO date (YYYY-MM-DD). Empty
+ *  bounds are treated as open-ended. */
+export function inDateRange(refISO: string, from: string, to: string): boolean {
+  const d = (refISO || '').slice(0, 10);
+  if (!d) return !from && !to;
+  if (from && d < from) return false;
+  if (to && d > to) return false;
+  return true;
+}
+
+/** Human-readable label for a 0-5 rating (matches the app's scoreWord bands). */
+export function ratingWord(score: number): string {
+  if (!score || score <= 0) return 'Not rated';
+  if (score >= 4) return 'Exceeds expectation';
+  if (score >= 2.5) return 'Meets expectation';
+  return 'Needs work';
+}
+
 export function adaptLeave(dto: LeaveDTO, managerName: string): Leave {
   const byAdmin = dto.decidedByRole === 'admin';
   return {
@@ -50,6 +68,7 @@ export function adaptLeave(dto: LeaveDTO, managerName: string): Leave {
     ord: ts(dto.createdAt),
     eRemark: dto.reason,
     mRemark: dto.managerNote || '',
+    refISO: dto.startDate,
     submitterId: dto.userId,
     byAdmin,
   };
@@ -67,8 +86,11 @@ export function adaptOvertime(dto: OvertimeDTO, managerName: string): Overtime {
     day: weekday(dto.workDate),
     status: cap(dto.status) as ReqStatus,
     manager: managerName,
-    mRemark: '',
+    eRemark: dto.note || '',
+    project: dto.project || '',
+    mRemark: dto.managerNote || '',
     ord: ts(dto.createdAt),
+    refISO: dto.workDate,
     submitterId: dto.userId,
     byAdmin,
   };
@@ -90,7 +112,9 @@ export function adaptReimb(dto: ClaimDTO, managerName: string): Reimb {
     bill: dto.receiptName || '—',
     hasBill: Boolean(dto.hasReceipt),
     ord: ts(dto.createdAt),
-    mRemark: '',
+    eRemark: dto.note || '',
+    mRemark: dto.managerNote || '',
+    refISO: dto.expenseDate,
     submitterId: dto.userId,
     byAdmin,
   };
@@ -119,20 +143,44 @@ export function adaptEmployees(dtos: EmployeeDTO[]): Emp[] {
   }));
 }
 
-/** Org-wide feedback list + per-manager rollup (rule 5). */
+/** Org-wide feedback list + per-manager rollup (rule 5).
+ *  Each record expands into one row per rated parameter plus an Overall row,
+ *  so the table shows feedback against every parameter with its rating label. */
 export function adaptFeedbackList(records: FeedbackDTO[]): { fbs: Feedback[]; fbMgrs: FbMgr[] } {
-  const fbs: Feedback[] = records.map((r, i) => ({
-    id: r.id,
-    name: r.employeeName,
-    team: r.department || 'Team',
-    manager: r.managerName || '—',
-    parameter: 'Overall',
-    rating: r.overallScore,
-    status: FB_STATUS[r.status] ?? 'Pending',
-    date: fmtDay(r.updatedAt || r.sentAt || ''),
-    ord: records.length - i,
-    text: r.extra || 'No feedback submitted for this period yet.',
-  }));
+  const fbs: Feedback[] = [];
+  records.forEach((r, i) => {
+    const base = {
+      name: r.employeeName,
+      team: r.department || 'Team',
+      manager: r.managerName || '—',
+      status: FB_STATUS[r.status] ?? 'Pending',
+      date: fmtDay(r.updatedAt || r.sentAt || ''),
+      refISO: (r.updatedAt || r.sentAt || '').slice(0, 10),
+      ord: records.length - i,
+      text: r.extra || '',
+    };
+    // Overall row first, then one row per parameter.
+    fbs.push({
+      ...base,
+      id: `${r.id}:overall`,
+      parameter: 'Overall',
+      rating: r.overallScore,
+      ratingDesc: ratingWord(r.overallScore),
+      isOverall: true,
+      note: r.extra || 'No summary provided.',
+    });
+    for (const [pi, p] of (r.parameters ?? []).entries()) {
+      fbs.push({
+        ...base,
+        id: `${r.id}:p${pi}`,
+        parameter: p.name,
+        rating: p.score,
+        ratingDesc: ratingWord(p.score),
+        isOverall: false,
+        note: p.note || '—',
+      });
+    }
+  });
 
   const byMgr = new Map<string, { name: string; done: number; total: number; scopes: Set<string> }>();
   for (const r of records) {
@@ -186,9 +234,13 @@ export function adaptWorkspace(ws: WorkspaceDTO, user: AuthUser): {
     manager: user.name,
     parameter: 'Overall',
     rating: t.score,
+    ratingDesc: ratingWord(t.score),
+    isOverall: true,
     status: FB_STATUS[t.feedbackStatus] ?? 'Pending',
     date: fmtDay(t.nextDate),
     ord: team.length - i,
+    refISO: (t.nextDate || '').slice(0, 10),
+    note: t.extra || 'No summary provided.',
     text: t.extra || 'No feedback submitted for this period yet.',
   }));
 

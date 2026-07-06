@@ -42,6 +42,7 @@ export async function saveRecognitionNomination(
       requireUserId(req),
       String(req.params.category ?? ''),
       String(req.body.employeeUserId ?? ''),
+      req.body.reason == null ? undefined : String(req.body.reason),
     );
     res.status(200).json({ success: true, nomination });
   } catch (error) {

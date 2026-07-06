@@ -11,6 +11,7 @@ export interface ReimbursementClaim {
   receiptContentType?: string;
   receiptSize?: number;
   note?: string;
+  managerNote?: string; // override note captured when decided from the dashboard
   status: ReimbursementStatus;
   decidedByUserId?: string;
   decidedByRole?: 'manager' | 'admin'; // reimbursements are always decided from the dashboard ('admin')

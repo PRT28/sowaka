@@ -134,12 +134,15 @@ export async function adminDecideReimbursement(
   adminUserId: string,
   claimIdInput: string,
   decisionInput: string,
+  managerNote?: string,
 ) {
   if (!ObjectId.isValid(claimIdInput)) throw new ReimbursementError(400, 'Invalid claim ID');
   const decision = decisionInput.trim().toLowerCase() as ReimbursementStatus;
   if (!decisions.has(decision)) {
     throw new ReimbursementError(400, 'Decision must be approved, declined, or paid');
   }
+  const note = managerNote?.trim();
+  if (note && note.length > 500) throw new ReimbursementError(400, 'Override note is too long');
   const claimId = new ObjectId(claimIdInput);
   const claim = await reimbursementClaims().findOne({ _id: claimId });
   if (!claim) throw new ReimbursementError(404, 'Reimbursement claim not found');
@@ -161,6 +164,7 @@ export async function adminDecideReimbursement(
         decidedByRole: 'admin',
         decidedAt: now,
         updatedAt: now,
+        ...(note ? { managerNote: note } : {}),
         ...(decision === 'paid' ? { paidAt: now } : {}),
       },
     },
@@ -202,6 +206,7 @@ function toView(claim: ReimbursementClaim & { _id: ObjectId }, employee: User) {
     receiptName: claim.receiptName,
     hasReceipt: Boolean(claim.receiptObjectKey),
     note: claim.note,
+    managerNote: claim.managerNote,
     status: claim.status,
     createdAt: claim.createdAt.toISOString(),
     decidedAt: claim.decidedAt?.toISOString(),

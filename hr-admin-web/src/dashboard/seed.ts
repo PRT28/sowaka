@@ -17,6 +17,7 @@ export type Leave = {
   ord: number;
   eRemark: string;
   mRemark: string;
+  refISO: string; // canonical date for range filtering (leave start date)
   submitterId?: string;
   byAdmin?: boolean;
 };
@@ -31,8 +32,11 @@ export type Overtime = {
   day: string;
   status: ReqStatus;
   manager: string;
+  eRemark: string; // employee note / reason
+  project: string;
   mRemark: string;
   ord: number;
+  refISO: string; // canonical date for range filtering (overtime work date)
   submitterId?: string;
   byAdmin?: boolean;
 };
@@ -53,10 +57,14 @@ export type Feedback = {
   manager: string;
   parameter: string;
   rating: number;
+  ratingDesc: string; // human label for the rating (e.g. "Exceeds expectation")
+  isOverall: boolean;
   status: FeedbackStatus;
   date: string;
   ord: number;
-  text: string;
+  refISO: string;
+  note: string; // note for this specific parameter (or overall summary text)
+  text: string; // full manager summary (extra)
 };
 
 export type Reimb = {
@@ -73,7 +81,9 @@ export type Reimb = {
   bill: string;
   hasBill?: boolean;
   ord: number;
+  eRemark: string; // employee remark / note
   mRemark: string;
+  refISO: string; // canonical date for range filtering (expense date)
   submitterId?: string;
   byAdmin?: boolean;
 };

@@ -53,21 +53,34 @@ export async function getManagerWorkspace(managerUserId: string) {
   const recognitionCandidates = reports;
   const period = currentPeriod();
   const reportIds = reports.map((report) => report.userId);
-  const [currentFeedback, latestSent, nominations, ownFeedbackHistory] = await Promise.all([
-    feedbackRecords().find({ managerUserId, employeeUserId: { $in: reportIds }, period }).toArray(),
-    feedbackRecords()
-      .aggregate([
-        { $match: { managerUserId, employeeUserId: { $in: reportIds }, status: 'sent' } },
-        { $sort: { period: -1 } },
-        { $group: { _id: '$employeeUserId', record: { $first: '$$ROOT' } } },
-      ])
-      .toArray(),
-    recognitionNominations().find({ managerUserId, period }).toArray(),
-    feedbackRecords()
-      .find({ employeeUserId: managerUserId, status: 'sent' })
-      .sort({ period: 1 })
-      .toArray(),
-  ]);
+  const [currentFeedback, latestSent, nominations, nominationHistory, ownFeedbackHistory] =
+    await Promise.all([
+      feedbackRecords().find({ managerUserId, employeeUserId: { $in: reportIds }, period }).toArray(),
+      feedbackRecords()
+        .aggregate([
+          { $match: { managerUserId, employeeUserId: { $in: reportIds }, status: 'sent' } },
+          { $sort: { period: -1 } },
+          { $group: { _id: '$employeeUserId', record: { $first: '$$ROOT' } } },
+        ])
+        .toArray(),
+      recognitionNominations().find({ managerUserId, period }).toArray(),
+      recognitionNominations()
+        .find({ managerUserId })
+        .sort({ period: -1, updatedAt: -1 })
+        .limit(50)
+        .toArray(),
+      feedbackRecords()
+        .find({ employeeUserId: managerUserId, status: 'sent' })
+        .sort({ period: 1 })
+        .toArray(),
+    ]);
+  // Resolve nominee names for the current + historical nominations (a past
+  // nominee may no longer be a direct report).
+  const nomineeIds = [...new Set(nominationHistory.map((n) => n.employeeUserId))];
+  const nomineeUsers = nomineeIds.length
+    ? await users().find({ userId: { $in: nomineeIds } }).toArray()
+    : [];
+  const nomineeName = new Map(nomineeUsers.map((u) => [u.userId, u.name]));
   const ownFeedback = ownFeedbackHistory.at(-1);
 
   const currentByEmployee = new Map(
@@ -122,6 +135,16 @@ export async function getManagerWorkspace(managerUserId: string) {
     nominations: nominations.map((nomination) => ({
       category: nomination.category,
       employeeUserId: nomination.employeeUserId,
+      employeeName: nomineeName.get(nomination.employeeUserId) ?? 'Teammate',
+      reason: nomination.reason ?? '',
+    })),
+    recognitionHistory: nominationHistory.map((nomination) => ({
+      period: nomination.period,
+      category: nomination.category,
+      employeeUserId: nomination.employeeUserId,
+      employeeName: nomineeName.get(nomination.employeeUserId) ?? 'Teammate',
+      reason: nomination.reason ?? '',
+      createdAt: (nomination.createdAt ?? nomination.updatedAt)?.toISOString?.() ?? undefined,
     })),
   };
 }
@@ -185,23 +208,27 @@ export async function nominateForRecognition(
   managerUserId: string,
   categoryInput: string,
   employeeUserId: string,
+  reasonInput?: string,
 ) {
   const category = categoryInput.trim().toLowerCase() as RecognitionNomination['category'];
   if (!recognitionCategories.has(category)) {
     throw new ManagerError(400, 'Recognition category is invalid');
   }
+  const reason = reasonInput?.trim();
+  if (!reason) throw new ManagerError(400, 'Please add a reason for the nomination');
+  if (reason.length > 500) throw new ManagerError(400, 'Nomination reason is too long');
   await requireRecognitionCandidate(managerUserId, employeeUserId);
   const now = new Date();
   const period = currentPeriod();
   await recognitionNominations().updateOne(
     { managerUserId, period, category },
     {
-      $set: { employeeUserId, updatedAt: now },
+      $set: { employeeUserId, reason, updatedAt: now },
       $setOnInsert: { managerUserId, period, category, createdAt: now },
     },
     { upsert: true },
   );
-  return { period, category, employeeUserId };
+  return { period, category, employeeUserId, reason };
 }
 
 async function requireDirectReport(managerUserId: string, employeeUserId: string) {

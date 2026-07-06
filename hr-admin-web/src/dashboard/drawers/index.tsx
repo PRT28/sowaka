@@ -1,26 +1,99 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useStore } from '../store';
 import { getReimbReceiptUrl } from '../../services/hrms';
-import { avColor as avColorOf, ETYPE, FSTAT, initials as initialsOf, OTDUR, STAT, TYPE } from '../theme';
+import { avColor as avColorOf, ETYPE, initials as initialsOf, OTDUR, STAT, TYPE } from '../theme';
 import type { LeaveType } from '../theme';
 import { DOCS } from '../seed';
 import type { Reimb } from '../seed';
 import { Pill } from '../ui';
 import { IconCheck, IconDownload, IconExternal, IconFile, IconStar, IconX } from '../icons';
-import { CloseButton, DrawerHeader, DrawerShell, HrOverrideFooter, InfoGrid, RemarkBlock } from './shell';
+import { CloseButton, DrawerHeader, DrawerShell, InfoGrid, RemarkBlock } from './shell';
 import { AddUserModal } from './AddUserModal';
+
+// Shared approve/decline footer for the leave / overtime / reimbursement drawers.
+function DecisionFooter({
+  onDecline,
+  onApprove,
+  approveLabel,
+}: {
+  onDecline: () => void;
+  onApprove: () => void;
+  approveLabel: string;
+}) {
+  return (
+    <div style={{ position: 'sticky', bottom: 0, background: '#FBF7F0', borderTop: '1px solid #ECE2D4', padding: '16px 24px', display: 'flex', gap: 11 }}>
+      <button onClick={onDecline} style={{ flex: 1, border: '1px solid #EBD9DE', background: '#FBF1F3', color: '#A8475F', borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Decline</button>
+      <button onClick={onApprove} style={{ flex: 1.4, border: 'none', background: '#4F7A52', color: '#fff', borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>{approveLabel}</button>
+    </div>
+  );
+}
+
+// Confirmation screen shown before an HR dashboard user overrides a request.
+// Always offers a note field so the reason for the override is captured.
+function ConfirmOverrideModal({
+  action,
+  title,
+  summary,
+  note,
+  onNote,
+  onCancel,
+  onConfirm,
+  confirmLabel,
+}: {
+  action: 'approve' | 'decline';
+  title: string;
+  summary: ReactNode;
+  note: string;
+  onNote: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  confirmLabel: string;
+}) {
+  const isApprove = action === 'approve';
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div onClick={onCancel} style={{ position: 'absolute', inset: 0, background: 'rgba(42,36,32,.5)', animation: 'ovl .2s ease both' }} />
+      <div style={{ position: 'relative', width: 400, background: '#FBF7F0', borderRadius: 18, boxShadow: '0 30px 70px rgba(60,40,24,.32)', animation: 'pop .2s ease both', padding: 24 }}>
+        <div style={{ width: 46, height: 46, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, background: isApprove ? '#EDF3E9' : '#FBF1F3' }}>
+          {isApprove ? <IconCheck /> : <IconX />}
+        </div>
+        <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.3px' }}>{title}</div>
+        <div style={{ fontSize: 13, color: '#6E6457', fontWeight: 500, marginTop: 6, lineHeight: 1.55 }}>{summary}</div>
+        <div style={{ fontSize: 11.5, color: '#A89C8B', fontWeight: 700, letterSpacing: '.3px', marginTop: 16, marginBottom: 7 }}>
+          NOTE — WHY ARE YOU OVERRIDING THIS?
+        </div>
+        <textarea
+          value={note}
+          onChange={(e) => onNote(e.target.value)}
+          placeholder={isApprove ? 'e.g. Cleared with finance — approving on their behalf' : 'e.g. Out of policy — resubmit with manager sign-off'}
+          style={{ width: '100%', height: 74, resize: 'none', border: '1px solid #EBE1D2', borderRadius: 10, padding: '10px 12px', fontSize: 13, outline: 'none', color: '#2A2420', boxSizing: 'border-box' }}
+        />
+        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ flex: 1, border: '1px solid #EBE1D2', background: '#fff', borderRadius: 11, padding: 12, fontSize: 13.5, fontWeight: 700, color: '#6E6457', cursor: 'pointer' }}>Cancel</button>
+          <button
+            onClick={onConfirm}
+            style={{ flex: 1.3, border: 'none', color: '#fff', borderRadius: 11, padding: 12, fontSize: 13.5, fontWeight: 700, cursor: 'pointer', background: isApprove ? '#4F7A52' : '#A8475F' }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function LeaveDrawer() {
   const s = useStore();
   const d = s.leaves.find((l) => l.id === s.drawerId);
   if (!d) return null;
-  const close = () => { s.setDrawerId(null); s.cancelDecline(); };
+  const close = () => s.setDrawerId(null);
   return (
     <DrawerShell onClose={close}>
       <DrawerHeader name={d.name} subtitle={`${d.team} · Applied ${d.applied}`} onClose={close} />
       <div style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <Pill label={d.status} tone={STAT[d.status]} fontSize={13} padding="5px 13px" />
+          <Pill label={d.byAdmin ? `${d.status} · by admin` : d.status} tone={STAT[d.status]} fontSize={13} padding="5px 13px" />
           <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, fontWeight: 600, color: '#5C5448' }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: TYPE[d.type as LeaveType] }} />
             {d.type} leave
@@ -34,20 +107,11 @@ function LeaveDrawer() {
             { label: 'APPLIED ON', value: d.applied },
           ]}
         />
-        <RemarkBlock label="EMPLOYEE REMARK" text={d.eRemark} filled marginBottom={16} />
+        <RemarkBlock label="EMPLOYEE REMARK" text={d.eRemark || 'No remark provided.'} filled={!!d.eRemark} marginBottom={16} />
         <RemarkBlock label="MANAGER REMARK" text={d.mRemark || 'No remark yet.'} filled={!!d.mRemark} marginBottom={8} />
       </div>
       {d.status === 'Pending' && (
-        <HrOverrideFooter
-          manager={d.manager}
-          declineOpen={s.declineId === d.id}
-          declineText={s.declineText}
-          onDeclineInput={s.setDeclineText}
-          onOpenDecline={() => s.openDecline(d.id)}
-          onCancelDecline={s.cancelDecline}
-          onConfirmDecline={() => s.confirmDecline(d.id)}
-          onApprove={() => s.approve(d.id)}
-        />
+        <DecisionFooter onDecline={() => s.lvAsk(d.id, 'decline')} onApprove={() => s.lvAsk(d.id, 'approve')} approveLabel="Approve leave" />
       )}
     </DrawerShell>
   );
@@ -57,13 +121,13 @@ function OvertimeDrawer() {
   const s = useStore();
   const d = s.ots.find((o) => o.id === s.otDrawerId);
   if (!d) return null;
-  const close = () => { s.setOtDrawerId(null); s.otCancelDecline(); };
+  const close = () => s.setOtDrawerId(null);
   return (
     <DrawerShell onClose={close}>
       <DrawerHeader name={d.name} subtitle={`${d.team} · Applied ${d.appliedOn}`} onClose={close} />
       <div style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <Pill label={d.status} tone={STAT[d.status]} fontSize={13} padding="5px 13px" />
+          <Pill label={d.byAdmin ? `${d.status} · by admin` : d.status} tone={STAT[d.status]} fontSize={13} padding="5px 13px" />
           <Pill label={d.duration} tone={OTDUR[d.duration]} fontSize={12.5} padding="5px 13px" />
         </div>
         <InfoGrid
@@ -71,22 +135,14 @@ function OvertimeDrawer() {
             { label: 'OVERTIME DATE', value: d.otDate },
             { label: 'DAY', value: d.day },
             { label: 'DURATION', value: d.duration },
-            { label: 'MANAGER', value: d.manager },
+            { label: 'PROJECT', value: d.project || '—' },
           ]}
         />
+        <RemarkBlock label="EMPLOYEE NOTE" text={d.eRemark || 'No note provided.'} filled={!!d.eRemark} marginBottom={16} />
         <RemarkBlock label="MANAGER REMARK" text={d.mRemark || 'No remark yet.'} filled={!!d.mRemark} />
       </div>
       {d.status === 'Pending' && (
-        <HrOverrideFooter
-          manager={d.manager}
-          declineOpen={s.otDeclineId === d.id}
-          declineText={s.otDeclineText}
-          onDeclineInput={s.setOtDeclineText}
-          onOpenDecline={() => s.otOpenDecline(d.id)}
-          onCancelDecline={s.otCancelDecline}
-          onConfirmDecline={() => s.otConfirmDecline(d.id)}
-          onApprove={() => s.otApprove(d.id)}
-        />
+        <DecisionFooter onDecline={() => s.otAsk(d.id, 'decline')} onApprove={() => s.otAsk(d.id, 'approve')} approveLabel="Approve overtime" />
       )}
     </DrawerShell>
   );
@@ -102,7 +158,7 @@ function FeedbackDrawer() {
       <DrawerHeader name={d.name} subtitle={`${d.team} · Reviewed by ${d.manager}`} onClose={close} />
       <div style={{ padding: '20px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <Pill label={d.status} tone={FSTAT[d.status]} fontSize={13} padding="5px 13px" />
+          <Pill label={d.isOverall ? 'Overall' : d.parameter} tone={{ bg: '#EFE7F2', fg: '#7E5FB0' }} fontSize={13} padding="5px 13px" />
           <span style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{d.date}</span>
         </div>
         <InfoGrid
@@ -112,15 +168,17 @@ function FeedbackDrawer() {
               label: 'RATING',
               value: (
                 <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <IconStar /> {d.rating.toFixed(1)} / 5
+                  <IconStar /> {d.rating > 0 ? `${d.rating.toFixed(1)} / 5` : '—'}
                 </span>
               ),
             },
+            { label: 'DESCRIPTION', value: d.ratingDesc },
+            { label: 'MANAGER', value: d.manager },
           ]}
         />
         <div>
-          <div style={{ fontSize: 11.5, color: '#A89C8B', fontWeight: 700, letterSpacing: '.3px', marginBottom: 7 }}>FEEDBACK</div>
-          <div style={{ background: '#fff', border: '1px solid #EFE6D8', borderRadius: 12, padding: '14px 15px', fontSize: 13.5, color: '#5C5448', lineHeight: 1.6, fontWeight: 500 }}>{d.text}</div>
+          <div style={{ fontSize: 11.5, color: '#A89C8B', fontWeight: 700, letterSpacing: '.3px', marginBottom: 7 }}>{d.isOverall ? 'SUMMARY' : 'PARAMETER NOTE'}</div>
+          <div style={{ background: '#fff', border: '1px solid #EFE6D8', borderRadius: 12, padding: '14px 15px', fontSize: 13.5, color: '#5C5448', lineHeight: 1.6, fontWeight: 500 }}>{d.note || d.text || '—'}</div>
         </div>
       </div>
     </DrawerShell>
@@ -167,13 +225,11 @@ function ReimbursementDrawer() {
             <IconExternal />
           </button>
         </div>
+        <RemarkBlock label="EMPLOYEE REMARK" text={d.eRemark || 'No remark provided.'} filled={!!d.eRemark} marginBottom={16} />
         <RemarkBlock label="MANAGER REMARK" text={d.mRemark || 'No remark yet.'} filled={!!d.mRemark} />
       </div>
       {d.status === 'Pending' && (
-        <div style={{ position: 'sticky', bottom: 0, background: '#FBF7F0', borderTop: '1px solid #ECE2D4', padding: '16px 24px', display: 'flex', gap: 11 }}>
-          <button onClick={() => s.rbAsk(d.id, 'decline')} style={{ flex: 1, border: '1px solid #EBD9DE', background: '#FBF1F3', color: '#A8475F', borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Decline</button>
-          <button onClick={() => s.rbAsk(d.id, 'approve')} style={{ flex: 1.4, border: 'none', background: '#4F7A52', color: '#fff', borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Approve claim</button>
-        </div>
+        <DecisionFooter onDecline={() => s.rbAsk(d.id, 'decline')} onApprove={() => s.rbAsk(d.id, 'approve')} approveLabel="Approve claim" />
       )}
     </DrawerShell>
   );
@@ -291,48 +347,64 @@ function RbBillModal() {
   );
 }
 
-// Confirmation screen shown before a claim is approved or declined.
+// Confirm screens for overriding a request from the dashboard (rules 6/7).
+function LeaveConfirmModal() {
+  const s = useStore();
+  const c = s.lvConfirm;
+  const d = c ? s.leaves.find((l) => l.id === c.id) : null;
+  if (!c || !d) return null;
+  const approve = c.action === 'approve';
+  return (
+    <ConfirmOverrideModal
+      action={c.action}
+      title={approve ? 'Approve this leave?' : 'Decline this leave?'}
+      summary={<>You’re {approve ? 'approving' : 'declining'} <b>{d.name}</b>’s {d.type.toLowerCase()} leave ({d.days}) as an admin override.</>}
+      note={s.lvNote}
+      onNote={s.setLvNote}
+      onCancel={s.lvCloseConfirm}
+      onConfirm={s.lvDecide}
+      confirmLabel={approve ? 'Approve leave' : 'Decline leave'}
+    />
+  );
+}
+
+function OvertimeConfirmModal() {
+  const s = useStore();
+  const c = s.otConfirm;
+  const d = c ? s.ots.find((o) => o.id === c.id) : null;
+  if (!c || !d) return null;
+  const approve = c.action === 'approve';
+  return (
+    <ConfirmOverrideModal
+      action={c.action}
+      title={approve ? 'Approve this overtime?' : 'Decline this overtime?'}
+      summary={<>You’re {approve ? 'approving' : 'declining'} <b>{d.name}</b>’s {d.duration.toLowerCase()} overtime on {d.otDate} as an admin override.</>}
+      note={s.otNote}
+      onNote={s.setOtNote}
+      onCancel={s.otCloseConfirm}
+      onConfirm={s.otDecide}
+      confirmLabel={approve ? 'Approve overtime' : 'Decline overtime'}
+    />
+  );
+}
+
 function RbConfirmModal() {
   const s = useStore();
-  const confirm = s.rbConfirm;
-  const d = confirm ? s.rbs.find((r) => r.id === confirm.id) : null;
-  if (!confirm || !d) return null;
-  const isApprove = confirm.action === 'approve';
-  const close = () => s.rbCloseConfirm();
+  const c = s.rbConfirm;
+  const d = c ? s.rbs.find((r) => r.id === c.id) : null;
+  if (!c || !d) return null;
+  const approve = c.action === 'approve';
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div onClick={close} style={{ position: 'absolute', inset: 0, background: 'rgba(42,36,32,.5)', animation: 'ovl .2s ease both' }} />
-      <div style={{ position: 'relative', width: 400, background: '#FBF7F0', borderRadius: 18, boxShadow: '0 30px 70px rgba(60,40,24,.32)', animation: 'pop .2s ease both', padding: 24 }}>
-        <div style={{ width: 46, height: 46, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, background: isApprove ? '#EDF3E9' : '#FBF1F3' }}>
-          {isApprove ? <IconCheck /> : <IconX />}
-        </div>
-        <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: '-.3px' }}>{isApprove ? 'Approve this claim?' : 'Decline this claim?'}</div>
-        <div style={{ fontSize: 13, color: '#6E6457', fontWeight: 500, marginTop: 6, lineHeight: 1.55 }}>
-          {isApprove ? (
-            <>You’re approving <b>{d.name}</b>’s {d.type.toLowerCase()} claim of <b>{d.amount}</b>. The employee will be notified.</>
-          ) : (
-            <>You’re declining <b>{d.name}</b>’s {d.type.toLowerCase()} claim of <b>{d.amount}</b>. Add a remark so they know why.</>
-          )}
-        </div>
-        {!isApprove && (
-          <textarea
-            value={s.rbDeclineText}
-            onChange={(e) => s.setRbDeclineText(e.target.value)}
-            placeholder="e.g. Out of budget — resubmit next quarter"
-            style={{ marginTop: 14, width: '100%', height: 74, resize: 'none', border: '1px solid #EBE1D2', borderRadius: 10, padding: '10px 12px', fontSize: 13, outline: 'none', color: '#2A2420', boxSizing: 'border-box' }}
-          />
-        )}
-        <div style={{ display: 'flex', gap: 10, marginTop: 18 }}>
-          <button onClick={close} style={{ flex: 1, border: '1px solid #EBE1D2', background: '#fff', borderRadius: 11, padding: 12, fontSize: 13.5, fontWeight: 700, color: '#6E6457', cursor: 'pointer' }}>Cancel</button>
-          <button
-            onClick={() => (isApprove ? s.rbApprove(d.id) : s.rbConfirmDecline(d.id))}
-            style={{ flex: 1.3, border: 'none', color: '#fff', borderRadius: 11, padding: 12, fontSize: 13.5, fontWeight: 700, cursor: 'pointer', background: isApprove ? '#4F7A52' : '#A8475F' }}
-          >
-            {isApprove ? 'Approve claim' : 'Decline claim'}
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmOverrideModal
+      action={c.action}
+      title={approve ? 'Approve this claim?' : 'Decline this claim?'}
+      summary={<>You’re {approve ? 'approving' : 'declining'} <b>{d.name}</b>’s {d.type.toLowerCase()} claim of <b>{d.amount}</b> as an admin override.</>}
+      note={s.rbNote}
+      onNote={s.setRbNote}
+      onCancel={s.rbCloseConfirm}
+      onConfirm={() => (approve ? s.rbApprove(d.id) : s.rbConfirmDecline(d.id))}
+      confirmLabel={approve ? 'Approve claim' : 'Decline claim'}
+    />
   );
 }
 
@@ -402,6 +474,8 @@ export function Drawers() {
       <ReimbursementDrawer />
       <RbBillModal />
       <RbConfirmModal />
+      <LeaveConfirmModal />
+      <OvertimeConfirmModal />
       <EmployeeDrawer />
       <AddUserModal />
     </>

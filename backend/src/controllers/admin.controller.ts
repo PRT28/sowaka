@@ -96,6 +96,7 @@ export async function decideReimbursement(req: Request, res: Response, next: Nex
       adminUserId(req),
       String(req.params.claimId ?? ''),
       String(req.body.decision ?? ''),
+      req.body.managerNote == null ? undefined : String(req.body.managerNote),
     );
     res.status(200).json({ success: true, claim });
   } catch (error) {

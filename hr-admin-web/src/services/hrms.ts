@@ -29,6 +29,7 @@ export type OvertimeDTO = {
   hours: number;
   project: string;
   note?: string;
+  managerNote?: string;
   status: 'pending' | 'approved' | 'declined';
   createdAt: string;
   decidedAt?: string;
@@ -45,6 +46,7 @@ export type ClaimDTO = {
   receiptName?: string;
   hasReceipt?: boolean;
   note?: string;
+  managerNote?: string;
   status: 'pending' | 'approved' | 'declined' | 'paid';
   createdAt: string;
   decidedAt?: string;
@@ -98,10 +100,14 @@ export const decideOvertime = (id: string, decision: 'approved' | 'declined', ma
 export const getReimbInbox = () =>
   api<{ claims: ClaimDTO[] }>('/admin/reimbursements').then((r) => r.claims);
 
-export const decideReimb = (id: string, decision: 'approved' | 'declined' | 'paid') =>
+export const decideReimb = (
+  id: string,
+  decision: 'approved' | 'declined' | 'paid',
+  managerNote?: string,
+) =>
   api<{ claim: ClaimDTO }>(`/admin/reimbursements/${id}/decision`, {
     method: 'PATCH',
-    body: { decision },
+    body: { decision, ...(managerNote ? { managerNote } : {}) },
   }).then((r) => r.claim);
 
 // Presigned URL to view the uploaded bill for a claim.

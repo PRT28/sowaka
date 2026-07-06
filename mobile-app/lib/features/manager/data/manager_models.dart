@@ -288,6 +288,7 @@ class AwardNomination {
     required this.subtitle,
     required this.icon,
     this.nomineeId,
+    this.reason,
   });
 
   final String key;
@@ -295,14 +296,42 @@ class AwardNomination {
   final String subtitle;
   final String icon;
   final int? nomineeId;
+  final String? reason;
 
-  AwardNomination copyWith({int? nomineeId}) {
+  bool get submitted => nomineeId != null;
+
+  AwardNomination copyWith({int? nomineeId, String? reason}) {
     return AwardNomination(
       key: key,
       title: title,
       subtitle: subtitle,
       icon: icon,
       nomineeId: nomineeId ?? this.nomineeId,
+      reason: reason ?? this.reason,
+    );
+  }
+}
+
+/// A past recognition nomination (any cycle), for the history view.
+class Nomination {
+  const Nomination({
+    required this.period,
+    required this.category,
+    required this.employeeName,
+    required this.reason,
+  });
+
+  final String period;
+  final String category;
+  final String employeeName;
+  final String reason;
+
+  factory Nomination.fromJson(Map<String, dynamic> json) {
+    return Nomination(
+      period: json['period'] as String? ?? '',
+      category: json['category'] as String? ?? '',
+      employeeName: json['employeeName'] as String? ?? 'Teammate',
+      reason: json['reason'] as String? ?? '',
     );
   }
 }
@@ -482,6 +511,7 @@ class ManagerDashboard {
     required this.leaves,
     required this.myLeaves,
     required this.awards,
+    required this.recognitionHistory,
     required this.leaveBalance,
     required this.overtime,
     required this.myOvertime,
@@ -500,6 +530,7 @@ class ManagerDashboard {
   final List<LeaveRequest> leaves;
   final List<LeaveRequest> myLeaves;
   final List<AwardNomination> awards;
+  final List<Nomination> recognitionHistory;
   final LeaveBalance leaveBalance;
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
@@ -511,6 +542,7 @@ class ManagerDashboard {
     List<LeaveRequest>? leaves,
     List<LeaveRequest>? myLeaves,
     List<AwardNomination>? awards,
+    List<Nomination>? recognitionHistory,
     LeaveBalance? leaveBalance,
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
@@ -530,6 +562,7 @@ class ManagerDashboard {
       leaves: leaves ?? this.leaves,
       myLeaves: myLeaves ?? this.myLeaves,
       awards: awards ?? this.awards,
+      recognitionHistory: recognitionHistory ?? this.recognitionHistory,
       leaveBalance: leaveBalance ?? this.leaveBalance,
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,
