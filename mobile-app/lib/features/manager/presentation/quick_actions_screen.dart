@@ -42,11 +42,13 @@ class QuickActionsScreen extends StatefulWidget {
     required this.bloc,
     required this.dashboard,
     required this.controller,
+    required this.profileAction,
   });
 
   final ManagerBloc bloc;
   final ManagerDashboard dashboard;
   final QuickActionsController controller;
+  final Widget profileAction;
 
   @override
   State<QuickActionsScreen> createState() => _QuickActionsScreenState();
@@ -62,6 +64,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   final _text = TextEditingController();
   final Map<String, String> _answers = {};
   _Policy? _policy;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -138,9 +141,22 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       key: const ValueKey('quick-home'),
       padding: const EdgeInsets.fromLTRB(18, 58, 18, 28),
       children: [
-        const Text('QUICK ACTIONS', style: _QText.eyebrow),
-        const SizedBox(height: 6),
-        const Text('What do you need?', style: _QText.hero),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('QUICK ACTIONS', style: _QText.eyebrow),
+                  SizedBox(height: 6),
+                  Text('What do you need?', style: _QText.hero),
+                ],
+              ),
+            ),
+            widget.profileAction,
+          ],
+        ),
         const SizedBox(height: 5),
         const Text('Everything you can do yourself.', style: _QText.subtitle),
         const SizedBox(height: 28),
@@ -594,10 +610,16 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       onBack: _back,
       footer: _WizardFooter(
         color: color,
-        label: review ? _flowCta(_flow) : 'Continue',
+        label: _submitting
+            ? 'Submitting…'
+            : review
+            ? _flowCta(_flow)
+            : 'Continue',
         secondary: step?.optional == true ? 'Skip for now' : null,
         onSecondary: () => _advance(step!, skip: true),
-        onTap: review || _canContinue(step!) ? () => _advance(step) : null,
+        onTap: !_submitting && (review || _canContinue(step!))
+            ? () => _advance(step)
+            : null,
       ),
       children: [
         Row(
@@ -643,16 +665,20 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   bool _canContinue(_FlowStep step) {
     return switch (step.kind) {
       _StepKind.choice => _choice != null,
+      _StepKind.text when step.money =>
+        (double.tryParse(_text.text.replaceAll(',', '').trim()) ?? 0) > 0,
       _StepKind.text => _text.text.trim().isNotEmpty || step.optional,
       _StepKind.dates || _StepKind.date || _StepKind.upload => true,
     };
   }
 
-  void _advance(_FlowStep? step, {bool skip = false}) {
+  Future<void> _advance(_FlowStep? step, {bool skip = false}) async {
     final steps = _stepsForCurrentFlow();
     if (step == null) {
+      setState(() => _submitting = true);
+      bool submitted;
       if (_flow == _QuickFlow.leave) {
-        widget.bloc.add(
+        submitted = await widget.bloc.add(
           SubmitLeaveApplication(
             type: _answers['Type'] ?? 'Casual',
             startDate: _from,
@@ -661,7 +687,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           ),
         );
       } else if (_flow == _QuickFlow.overtime) {
-        widget.bloc.add(
+        submitted = await widget.bloc.add(
           SubmitOvertimeApplication(
             workDate: _from,
             duration: _answers['Duration'] ?? 'Half day',
@@ -670,7 +696,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           ),
         );
       } else {
-        widget.bloc.add(
+        submitted = await widget.bloc.add(
           SubmitReimbursementApplication(
             expenseDate: _from,
             amount: _answers['Amount'] ?? '',
@@ -680,7 +706,12 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           ),
         );
       }
-      setState(() => _page = _QuickPage.success);
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        if (submitted) _page = _QuickPage.success;
+      });
+      if (submitted) widget.controller._navigationChanged();
       return;
     }
     if (!skip) {
@@ -746,11 +777,13 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   }
 
   Future<void> _pickDate(bool from, DateTime initial) async {
+    final today = DateTime.now();
+    final historical = _flow != _QuickFlow.leave;
     final date = await showDatePicker(
       context: context,
       initialDate: initial,
       firstDate: DateTime(2025),
-      lastDate: DateTime(2027),
+      lastDate: historical ? today : DateTime(today.year + 2, 12, 31),
     );
     if (date == null || !mounted) return;
     setState(() {
@@ -1617,9 +1650,11 @@ const _flowSteps = <_QuickFlow, List<_FlowStep>>{
     ),
     _FlowStep(
       label: 'Bill',
-      kind: _StepKind.upload,
-      question: 'Attach the bill',
-      subtitle: 'So finance can verify it.',
+      kind: _StepKind.text,
+      question: 'Add a receipt reference',
+      subtitle: 'Optional — enter the receipt or bill filename.',
+      placeholder: 'e.g. cab-receipt-12-jun.pdf',
+      optional: true,
     ),
     _FlowStep(
       label: 'Note',

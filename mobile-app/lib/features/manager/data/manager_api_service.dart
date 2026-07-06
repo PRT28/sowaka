@@ -26,6 +26,9 @@ class ManagerApiService {
     final myOvertimeFuture = fetchMyOvertime();
     final overtimeFuture = fetchManagerOvertime();
     final reimbursementsFuture = fetchMyReimbursements();
+    final reimbursementInboxFuture = session.user.role == 'manager'
+        ? fetchManagerReimbursements()
+        : Future.value(const <ReimbursementClaim>[]);
     final workspace = await workspaceFuture;
     final teamValues = workspace['team'] as List<dynamic>? ?? const [];
     final team = teamValues.indexed.map((entry) {
@@ -61,6 +64,9 @@ class ManagerApiService {
       managerTeam: session.user.company,
       approverName: workspace['approverName'] as String? ?? 'Your manager',
       managerScore: (workspace['managerScore'] as num?)?.toDouble() ?? 0,
+      growthHistory: (workspace['growthHistory'] as List<dynamic>? ?? const [])
+          .map((value) => GrowthRecord.fromJson(value as Map<String, dynamic>))
+          .toList(),
       today: DateTime.now(),
       team: team,
       recognitionCandidates: recognitionCandidates,
@@ -77,6 +83,7 @@ class ManagerApiService {
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
       myReimbursements: await reimbursementsFuture,
+      reimbursements: await reimbursementInboxFuture,
     );
   }
 
@@ -205,6 +212,16 @@ class ManagerApiService {
         .toList();
   }
 
+  Future<List<ReimbursementClaim>> fetchManagerReimbursements() async {
+    final json = await _request('GET', '/reimbursements/inbox');
+    final values = json['claims'] as List<dynamic>? ?? const [];
+    return values
+        .map(
+          (value) => ReimbursementClaim.fromJson(value as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
   Future<ReimbursementClaim> submitReimbursement({
     required DateTime expenseDate,
     required String amount,
@@ -222,6 +239,18 @@ class ManagerApiService {
         'receiptName': receiptName,
         'note': note,
       },
+    );
+    return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
+  }
+
+  Future<ReimbursementClaim> decideReimbursement(
+    String claimId,
+    String decision,
+  ) async {
+    final json = await _request(
+      'PATCH',
+      '/reimbursements/$claimId/decision',
+      body: {'decision': decision.toLowerCase()},
     );
     return ReimbursementClaim.fromJson(json['claim'] as Map<String, dynamic>);
   }

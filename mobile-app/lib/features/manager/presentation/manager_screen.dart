@@ -70,6 +70,12 @@ class _ManagerScreenState extends State<ManagerScreen> {
       _bloc.add(const CloseFeedbackRecord());
     } else if (state.view == ManagerView.feedbackList) {
       _bloc.add(const CloseFeedbackList());
+    } else if (state.view == ManagerView.leaveRequests) {
+      _bloc.add(const CloseLeaveRequests());
+    } else if (state.view == ManagerView.overtimeRequests) {
+      _bloc.add(const CloseOvertimeRequests());
+    } else if (state.view == ManagerView.reimbursementRequests) {
+      _bloc.add(const CloseReimbursementRequests());
     } else if (state.tab == ManagerTab.quick &&
         _quickActionsController.canGoBack) {
       _quickActionsController.handleBack();
@@ -214,17 +220,27 @@ class _TabContent extends StatelessWidget {
           onOpenProfile: onOpenProfile,
         ),
         ManagerTab.grow => _GrowTab(state: state, onOpenProfile: onOpenProfile),
-        ManagerTab.connect => const _ComingSoonTab(
+        ManagerTab.connect => _ComingSoonTab(
           key: ValueKey('connect'),
           icon: Icons.newspaper_rounded,
           title: 'Connect',
           body: 'Company feed, shout-outs and updates — coming soon.',
+          profileAction: _ProfileAvatarAction(
+            key: const ValueKey('connect-profile-avatar'),
+            initial: state.dashboard!.managerInitial,
+            onTap: onOpenProfile,
+          ),
         ),
         ManagerTab.quick => QuickActionsScreen(
           key: const ValueKey('quick-actions'),
           bloc: bloc,
           dashboard: state.dashboard!,
           controller: quickActionsController,
+          profileAction: _ProfileAvatarAction(
+            key: const ValueKey('quick-profile-avatar'),
+            initial: state.dashboard!.managerInitial,
+            onTap: onOpenProfile,
+          ),
         ),
       },
     );
@@ -252,6 +268,21 @@ class _ManageContent extends StatelessWidget {
       ),
       ManagerView.feedbackList => _FeedbackList(state: state, bloc: bloc),
       ManagerView.feedbackRecord => _RecordFeedback(state: state, bloc: bloc),
+      ManagerView.leaveRequests => _RequestList(
+        state: state,
+        bloc: bloc,
+        type: _RequestType.leave,
+      ),
+      ManagerView.overtimeRequests => _RequestList(
+        state: state,
+        bloc: bloc,
+        type: _RequestType.overtime,
+      ),
+      ManagerView.reimbursementRequests => _RequestList(
+        state: state,
+        bloc: bloc,
+        type: _RequestType.reimbursement,
+      ),
     };
   }
 }
@@ -278,12 +309,16 @@ class _ManagerHome extends StatelessWidget {
         )
         .length;
     final given = data.team.length - open;
-    final pendingLeaves = data.leaves
+    final pendingLeaveList = data.leaves
         .where((leave) => leave.decision == LeaveDecision.pending)
-        .length;
+        .toList();
+    final pendingLeaves = pendingLeaveList.length;
     final named = data.awards.where((award) => award.nomineeId != null).length;
     final pendingOvertime = data.overtime
         .where((request) => request.decision == LeaveDecision.pending)
+        .toList();
+    final pendingReimbursements = data.reimbursements
+        .where((claim) => claim.status == 'Pending')
         .toList();
 
     return ListView(
@@ -359,7 +394,8 @@ class _ManagerHome extends StatelessWidget {
         const SizedBox(height: 24),
         _SectionTitle(
           title: 'Feedback',
-          trailing: '$given of ${data.team.length} given',
+          trailing: open == 0 ? 'All given' : '$open pending',
+          onTap: () => bloc.add(const OpenFeedbackList()),
         ),
         const SizedBox(height: 10),
         _ProgressBar(
@@ -367,81 +403,74 @@ class _ManagerHome extends StatelessWidget {
           color: MColors.terra,
         ),
         const SizedBox(height: 14),
-        PressableCard(
+        _AvatarActionCluster(
+          people: data.team
+              .take(10)
+              .map(
+                (member) => _ActionAvatar(
+                  initial: _nameInitials(member.name),
+                  index: member.avatarIndex,
+                  completed: member.status == FeedbackStatus.sent,
+                ),
+              ),
           onTap: () => bloc.add(const OpenFeedbackList()),
-          padding: const EdgeInsets.all(15),
-          child: Row(
-            children: [
-              const IconBox(
-                icon: Icons.checklist_rounded,
-                color: MColors.terra,
-                tint: MColors.terraTint,
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '$open still to give',
-                      style: const TextStyle(
-                        color: MColors.ink,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    const Text(
-                      'Review your team and record this month’s feedback',
-                      style: TextStyle(
-                        color: MColors.inkSoft,
-                        fontSize: 13,
-                        height: 1.35,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Text(
-                'View all',
-                style: TextStyle(
-                  color: MColors.terra,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
-              ),
-            ],
-          ),
         ),
         const SizedBox(height: 28),
         _SectionTitle(
           title: 'Leave requests',
           trailing: pendingLeaves == 0 ? 'All clear' : '$pendingLeaves pending',
+          onTap: () => bloc.add(const OpenLeaveRequests()),
         ),
         const SizedBox(height: 12),
-        ...data.leaves.map(
-          (leave) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _LeaveCard(leave: leave, bloc: bloc),
-          ),
-        ),
-        const SizedBox(height: 14),
-        _SectionTitle(
-          title: 'Overtime requests',
-          trailing: '${pendingOvertime.length} pending',
-        ),
-        const SizedBox(height: 12),
-        ...pendingOvertime.map(
-          (request) => Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: _OvertimeRequestCard(
-              request: request,
-              onDecide: (decision) =>
-                  bloc.add(DecideOvertime(request.id, decision)),
+        _AvatarActionCluster(
+          people: pendingLeaveList.map(
+            (leave) => _ActionAvatar(
+              initial: _nameInitials(leave.who),
+              index: leave.avatarIndex,
             ),
           ),
+          emptyText: 'All requests reviewed',
+          onTap: () => bloc.add(const OpenLeaveRequests()),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 28),
+        _SectionTitle(
+          title: 'Overtime requests',
+          trailing: pendingOvertime.isEmpty
+              ? 'All clear'
+              : '${pendingOvertime.length} pending',
+          onTap: () => bloc.add(const OpenOvertimeRequests()),
+        ),
+        const SizedBox(height: 12),
+        _AvatarActionCluster(
+          people: pendingOvertime.map(
+            (request) => _ActionAvatar(
+              initial: _nameInitials(request.who),
+              index: request.avatarIndex,
+            ),
+          ),
+          emptyText: 'All requests reviewed',
+          onTap: () => bloc.add(const OpenOvertimeRequests()),
+        ),
+        const SizedBox(height: 28),
+        _SectionTitle(
+          title: 'Reimbursements',
+          trailing: pendingReimbursements.isEmpty
+              ? 'All clear'
+              : '${pendingReimbursements.length} pending',
+          onTap: () => bloc.add(const OpenReimbursementRequests()),
+        ),
+        const SizedBox(height: 12),
+        _AvatarActionCluster(
+          people: pendingReimbursements.map(
+            (claim) => _ActionAvatar(
+              initial: _nameInitials(claim.who),
+              index: claim.who.hashCode.abs() % avatarColors.length,
+            ),
+          ),
+          emptyText: 'All requests reviewed',
+          onTap: () => bloc.add(const OpenReimbursementRequests()),
+        ),
+        const SizedBox(height: 28),
         _SectionTitle(
           title: 'Recognition',
           trailing: '$named of ${data.awards.length} named',
@@ -1247,103 +1276,432 @@ class _AttendanceTab extends StatelessWidget {
   }
 }
 
-class _GrowTab extends StatelessWidget {
+class _GrowTab extends StatefulWidget {
   const _GrowTab({required this.state, required this.onOpenProfile});
 
   final ManagerState state;
   final VoidCallback onOpenProfile;
 
   @override
+  State<_GrowTab> createState() => _GrowTabState();
+}
+
+class _GrowTabState extends State<_GrowTab> {
+  String? _selectedParameter;
+
+  @override
   Widget build(BuildContext context) {
-    final data = state.dashboard!;
+    final data = widget.state.dashboard!;
+    final history = data.growthHistory;
+    final parameterNames = history.isEmpty
+        ? const <String>[]
+        : history.last.parameters.map((item) => item.name).toList();
+    final selected = _selectedParameter;
+    final values = history.map((record) {
+      if (selected == null) return record.overallScore;
+      return record.parameters
+              .where((item) => item.name == selected)
+              .map((item) => item.score)
+              .firstOrNull ??
+          0;
+    }).toList();
+
     return ListView(
       key: const ValueKey('grow'),
-      padding: const EdgeInsets.fromLTRB(20, 60, 20, 34),
+      padding: const EdgeInsets.fromLTRB(16, 60, 16, 34),
       children: [
-        Text(
-          _monthName(data.today.month),
-          style: const TextStyle(
-            color: MColors.inkSoft,
-            fontSize: 13.5,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          'Grow',
-          style: TextStyle(
-            color: MColors.ink,
-            fontSize: 27,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 18),
-        PressableCard(
-          onTap: onOpenProfile,
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              AvatarBadge(initial: data.managerInitial, index: 1, size: 58),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.managerName,
-                      style: const TextStyle(
-                        color: MColors.ink,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${data.managerTeam} · Your feedback journey',
-                      style: const TextStyle(
-                        color: MColors.inkSoft,
-                        fontSize: 13.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                data.managerScore.toStringAsFixed(1),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Grow',
                 style: TextStyle(
-                  color: scoreColor(data.managerScore),
-                  fontSize: 32,
+                  color: MColors.ink,
+                  fontSize: 27,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-            ],
-          ),
+            ),
+            _ProfileAvatarAction(
+              key: const ValueKey('grow-profile-avatar'),
+              initial: data.managerInitial,
+              onTap: widget.onOpenProfile,
+            ),
+          ],
         ),
-        const SizedBox(height: 14),
-        const PressableCard(
-          padding: EdgeInsets.all(16),
-          child: Row(
+        const SizedBox(height: 4),
+        const Text(
+          'Your performance & trajectory, from 1-on-1s',
+          style: TextStyle(color: MColors.inkSoft, fontSize: 14.5),
+        ),
+        const SizedBox(height: 24),
+        if (history.isEmpty)
+          const _GrowthEmptyState()
+        else ...[
+          Row(
             children: [
-              IconBox(
-                icon: Icons.show_chart_rounded,
-                color: MColors.plum,
-                tint: MColors.plumTint,
-              ),
-              SizedBox(width: 13),
-              Expanded(
+              const Expanded(
                 child: Text(
-                  'Past feedbacks and growth insights will appear here as your manager shares them.',
+                  'Trend',
                   style: TextStyle(
-                    color: MColors.inkSoft,
-                    fontSize: 14,
-                    height: 1.45,
+                    color: MColors.ink,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
                   ),
+                ),
+              ),
+              Text(
+                values.last.toStringAsFixed(1),
+                style: TextStyle(
+                  color: scoreColor(values.last),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Text(
+                '/5',
+                style: TextStyle(
+                  color: MColors.inkFaint,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _GrowthChip(
+                  label: 'Overall',
+                  selected: selected == null,
+                  onTap: () => setState(() => _selectedParameter = null),
+                ),
+                ...parameterNames.map(
+                  (name) => Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: _GrowthChip(
+                      label: name,
+                      selected: selected == name,
+                      onTap: () => setState(() => _selectedParameter = name),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          PressableCard(
+            padding: const EdgeInsets.fromLTRB(12, 18, 12, 12),
+            child: _GrowthChart(records: history, values: values),
+          ),
+          const SizedBox(height: 28),
+          const _SectionTitle(title: 'Feedback history'),
+          const SizedBox(height: 12),
+          ...history.reversed.map(
+            (record) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _GrowthHistoryCard(record: record, parameter: selected),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Center(
+            child: Text(
+              'Full history is retained ✦',
+              style: TextStyle(color: MColors.inkFaint, fontSize: 12),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _GrowthEmptyState extends StatelessWidget {
+  const _GrowthEmptyState();
+
+  @override
+  Widget build(BuildContext context) => const PressableCard(
+    padding: EdgeInsets.all(20),
+    child: Row(
+      children: [
+        IconBox(
+          icon: Icons.show_chart_rounded,
+          color: MColors.plum,
+          tint: MColors.plumTint,
+        ),
+        SizedBox(width: 13),
+        Expanded(
+          child: Text(
+            'Your trend and month-by-month feedback will appear after your manager shares the first review.',
+            style: TextStyle(
+              color: MColors.inkSoft,
+              fontSize: 14,
+              height: 1.45,
+            ),
+          ),
         ),
       ],
+    ),
+  );
+}
+
+class _GrowthChip extends StatelessWidget {
+  const _GrowthChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(99),
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
+      decoration: BoxDecoration(
+        color: selected ? MColors.terra : const Color(0xFFF1EBE1),
+        border: Border.all(
+          color: selected ? MColors.terra : const Color(0x1A462D1C),
+        ),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : MColors.inkSoft,
+          fontSize: 13,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
+  );
+}
+
+class _GrowthChart extends StatelessWidget {
+  const _GrowthChart({required this.records, required this.values});
+
+  final List<GrowthRecord> records;
+  final List<double> values;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      SizedBox(
+        height: 155,
+        width: double.infinity,
+        child: CustomPaint(painter: _GrowthChartPainter(values)),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: records
+            .map(
+              (record) => Text(
+                _periodLabel(record.period),
+                style: const TextStyle(
+                  color: MColors.inkFaint,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+            .toList(),
+      ),
+    ],
+  );
+}
+
+class _GrowthChartPainter extends CustomPainter {
+  const _GrowthChartPainter(this.values);
+
+  final List<double> values;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final grid = Paint()
+      ..color = MColors.line
+      ..strokeWidth = 1;
+    for (var i = 0; i < 5; i++) {
+      final y = i * size.height / 4;
+      canvas.drawLine(Offset.zero.translate(0, y), Offset(size.width, y), grid);
+    }
+    if (values.isEmpty) return;
+    final line = Paint()
+      ..color = MColors.terra
+      ..strokeWidth = 2.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final fill = Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [MColors.terra.withValues(alpha: .18), Colors.transparent],
+      ).createShader(Offset.zero & size);
+    final points = values.indexed.map((entry) {
+      final x = values.length == 1
+          ? size.width / 2
+          : entry.$1 * size.width / (values.length - 1);
+      final y = size.height - (entry.$2.clamp(0, 5) / 5 * size.height);
+      return Offset(x, y);
+    }).toList();
+    final path = Path()..moveTo(points.first.dx, points.first.dy);
+    for (final point in points.skip(1)) {
+      path.lineTo(point.dx, point.dy);
+    }
+    final area = Path.from(path)
+      ..lineTo(points.last.dx, size.height)
+      ..lineTo(points.first.dx, size.height)
+      ..close();
+    canvas
+      ..drawPath(area, fill)
+      ..drawPath(path, line);
+    for (final point in points) {
+      canvas.drawCircle(point, 4.5, Paint()..color = MColors.terra);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GrowthChartPainter oldDelegate) =>
+      oldDelegate.values != values;
+}
+
+class _GrowthHistoryCard extends StatefulWidget {
+  const _GrowthHistoryCard({required this.record, required this.parameter});
+
+  final GrowthRecord record;
+  final String? parameter;
+
+  @override
+  State<_GrowthHistoryCard> createState() => _GrowthHistoryCardState();
+}
+
+class _GrowthHistoryCardState extends State<_GrowthHistoryCard> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = widget.parameter == null
+        ? widget.record.parameters
+        : widget.record.parameters
+              .where((item) => item.name == widget.parameter)
+              .toList();
+    return PressableCard(
+      onTap: () => setState(() => _open = !_open),
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                const CircleAvatar(radius: 5, backgroundColor: MColors.terra),
+                const SizedBox(width: 11),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _periodTitle(widget.record.period),
+                        style: const TextStyle(
+                          color: MColors.ink,
+                          fontSize: 16.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Sent ${shortDate(widget.record.sentAt)} · ${widget.record.managerName}',
+                        style: const TextStyle(
+                          color: MColors.inkFaint,
+                          fontSize: 12.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  widget.record.overallScore.toStringAsFixed(1),
+                  style: TextStyle(
+                    color: scoreColor(widget.record.overallScore),
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Icon(
+                  _open
+                      ? Icons.keyboard_arrow_up_rounded
+                      : Icons.keyboard_arrow_down_rounded,
+                  color: MColors.inkFaint,
+                ),
+              ],
+            ),
+          ),
+          if (_open)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: MColors.line)),
+              ),
+              child: Column(
+                children: visible.map((item) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                item.name,
+                                style: const TextStyle(
+                                  color: MColors.ink,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            Text(
+                              item.score.toStringAsFixed(1),
+                              style: TextStyle(
+                                color: scoreColor(item.score),
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 7),
+                        _ProgressBar(
+                          value: item.score / 5,
+                          color: scoreColor(item.score),
+                        ),
+                        if (item.note.isNotEmpty) ...[
+                          const SizedBox(height: 7),
+                          Text(
+                            item.note,
+                            style: const TextStyle(
+                              color: MColors.inkSoft,
+                              fontSize: 13.5,
+                              height: 1.5,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -1354,19 +1712,58 @@ class _ComingSoonTab extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.body,
+    required this.profileAction,
   });
 
   final IconData icon;
   final String title;
   final String body;
+  final Widget profileAction;
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Column(
       key: const ValueKey('coming-soon'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: _ComingSoonBlock(icon: icon, title: title, body: body),
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            child: Row(children: [const Spacer(), profileAction]),
+          ),
+        ),
+        Expanded(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: _ComingSoonBlock(icon: icon, title: title, body: body),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileAvatarAction extends StatelessWidget {
+  const _ProfileAvatarAction({
+    super.key,
+    required this.initial,
+    required this.onTap,
+  });
+
+  final String initial;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Open profile',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(99),
+        onTap: onTap,
+        child: AvatarBadge(initial: initial, index: 1, size: 42),
       ),
     );
   }
@@ -1472,6 +1869,330 @@ class _TabButton extends StatelessWidget {
   }
 }
 
+class _ActionAvatar {
+  const _ActionAvatar({
+    required this.initial,
+    required this.index,
+    this.completed = false,
+  });
+
+  final String initial;
+  final int index;
+  final bool completed;
+}
+
+class _AvatarActionCluster extends StatelessWidget {
+  const _AvatarActionCluster({
+    required this.people,
+    required this.onTap,
+    this.emptyText = 'All caught up',
+  });
+
+  final Iterable<_ActionAvatar> people;
+  final VoidCallback onTap;
+  final String emptyText;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = people.toList();
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: Text(
+          emptyText,
+          style: const TextStyle(
+            color: MColors.inkFaint,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+    }
+    return Semantics(
+      button: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: items.map((person) {
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Opacity(
+                    opacity: person.completed ? .5 : 1,
+                    child: AvatarBadge(
+                      initial: person.initial,
+                      index: person.index,
+                      size: 46,
+                    ),
+                  ),
+                  if (person.completed)
+                    const Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: CircleAvatar(
+                        radius: 10,
+                        backgroundColor: Colors.white,
+                        child: CircleAvatar(
+                          radius: 8,
+                          backgroundColor: MColors.sage,
+                          child: Icon(
+                            Icons.check_rounded,
+                            size: 11,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            }).toList(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+enum _RequestType { leave, overtime, reimbursement }
+
+class _RequestList extends StatefulWidget {
+  const _RequestList({
+    required this.state,
+    required this.bloc,
+    required this.type,
+  });
+
+  final ManagerState state;
+  final ManagerBloc bloc;
+  final _RequestType type;
+
+  @override
+  State<_RequestList> createState() => _RequestListState();
+}
+
+class _RequestListState extends State<_RequestList> {
+  bool _reviewed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLeave = widget.type == _RequestType.leave;
+    final isOvertime = widget.type == _RequestType.overtime;
+    final pendingCount = switch (widget.type) {
+      _RequestType.leave =>
+        widget.state.dashboard!.leaves
+            .where((item) => item.decision == LeaveDecision.pending)
+            .length,
+      _RequestType.overtime =>
+        widget.state.dashboard!.overtime
+            .where((item) => item.decision == LeaveDecision.pending)
+            .length,
+      _RequestType.reimbursement =>
+        widget.state.dashboard!.reimbursements
+            .where((item) => item.status == 'Pending')
+            .length,
+    };
+    final close = switch (widget.type) {
+      _RequestType.leave => const CloseLeaveRequests(),
+      _RequestType.overtime => const CloseOvertimeRequests(),
+      _RequestType.reimbursement => const CloseReimbursementRequests(),
+    };
+    final title = switch (widget.type) {
+      _RequestType.leave => 'Leave requests',
+      _RequestType.overtime => 'Overtime requests',
+      _RequestType.reimbursement => 'Reimbursements',
+    };
+
+    return Column(
+      key: ValueKey('${widget.type.name}-requests'),
+      children: [
+        _TopBar(
+          title: title,
+          sub: 'Review requests from your team',
+          onBack: () => widget.bloc.add(close),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: _RequestFilterButton(
+                  label: pendingCount == 0
+                      ? 'Pending'
+                      : 'Pending · $pendingCount',
+                  selected: !_reviewed,
+                  onTap: () => setState(() => _reviewed = false),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _RequestFilterButton(
+                  label: 'Reviewed',
+                  selected: _reviewed,
+                  onTap: () => setState(() => _reviewed = true),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Builder(
+            builder: (context) {
+              if (isLeave) {
+                final items = widget.state.dashboard!.leaves
+                    .where(
+                      (item) => _reviewed
+                          ? item.decision != LeaveDecision.pending
+                          : item.decision == LeaveDecision.pending,
+                    )
+                    .toList();
+                return _RequestListBody(
+                  empty: items.isEmpty,
+                  reviewed: _reviewed,
+                  children: items
+                      .map((item) => _LeaveCard(leave: item, bloc: widget.bloc))
+                      .toList(),
+                );
+              }
+              if (isOvertime) {
+                final items = widget.state.dashboard!.overtime
+                    .where(
+                      (item) => _reviewed
+                          ? item.decision != LeaveDecision.pending
+                          : item.decision == LeaveDecision.pending,
+                    )
+                    .toList();
+                return _RequestListBody(
+                  empty: items.isEmpty,
+                  reviewed: _reviewed,
+                  children: items
+                      .map(
+                        (item) => _OvertimeRequestCard(
+                          request: item,
+                          bloc: widget.bloc,
+                        ),
+                      )
+                      .toList(),
+                );
+              }
+              final items = widget.state.dashboard!.reimbursements
+                  .where(
+                    (item) => _reviewed
+                        ? item.status != 'Pending'
+                        : item.status == 'Pending',
+                  )
+                  .toList();
+              return _RequestListBody(
+                empty: items.isEmpty,
+                reviewed: _reviewed,
+                children: items
+                    .map(
+                      (item) => _ReimbursementRequestCard(
+                        claim: item,
+                        bloc: widget.bloc,
+                      ),
+                    )
+                    .toList(),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RequestFilterButton extends StatelessWidget {
+  const _RequestFilterButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    borderRadius: BorderRadius.circular(12),
+    onTap: onTap,
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(vertical: 11),
+      decoration: BoxDecoration(
+        color: selected ? MColors.terra : Colors.white,
+        border: Border.all(color: selected ? MColors.terra : MColors.line),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : MColors.inkSoft,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
+}
+
+class _RequestListBody extends StatelessWidget {
+  const _RequestListBody({
+    required this.empty,
+    required this.reviewed,
+    required this.children,
+  });
+
+  final bool empty;
+  final bool reviewed;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    if (empty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                reviewed ? Icons.history_rounded : Icons.task_alt_rounded,
+                size: 42,
+                color: MColors.sageDeep,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                reviewed
+                    ? 'No reviewed requests yet.'
+                    : 'No requests waiting on you.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: MColors.inkSoft,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 32),
+      itemCount: children.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (_, index) => children[index],
+    );
+  }
+}
+
 class _LeaveCard extends StatelessWidget {
   const _LeaveCard({required this.leave, required this.bloc});
 
@@ -1482,392 +2203,1576 @@ class _LeaveCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = leavePalette(leave.type);
     return PressableCard(
-      padding: const EdgeInsets.all(15),
+      onTap: () => _openDetails(context),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              AvatarBadge(
-                initial: leave.initial,
-                index: leave.avatarIndex,
-                size: 40,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Text(
-                      leave.who,
-                      style: const TextStyle(
-                        color: MColors.ink,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15.5,
+                    AvatarBadge(
+                      initial: leave.initial,
+                      index: leave.avatarIndex,
+                      size: 42,
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            leave.who,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.ink,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${leave.team} · applied ${daysAgo(leave.requestedOn)} ago',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.inkFaint,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${shortDate(leave.start)}–${shortDate(leave.end)} · ${leave.days} days',
-                      style: const TextStyle(
-                        color: MColors.inkSoft,
-                        fontSize: 12.5,
-                      ),
-                    ),
+                    const SizedBox(width: 8),
+                    leave.decision == LeaveDecision.pending
+                        ? _LeaveTypeChip(type: leave.type)
+                        : _LeaveStatusPill(decision: leave.decision),
                   ],
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: colors.$2,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  leave.type,
-                  style: TextStyle(
-                    color: colors.$1,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            leave.reason,
-            style: const TextStyle(
-              color: MColors.ink,
-              fontSize: 14,
-              height: 1.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Requested ${daysAgo(leave.requestedOn)} ago',
-            style: const TextStyle(color: MColors.inkFaint, fontSize: 12),
-          ),
-          const SizedBox(height: 14),
-          if (leave.decision == LeaveDecision.pending)
-            Row(
-              children: [
-                Expanded(
-                  child: ActionButton(
-                    label: 'Decline',
-                    background: Colors.white,
-                    foreground: MColors.ink,
-                    border: MColors.line,
-                    onTap: () =>
-                        bloc.add(DecideLeave(leave.id, LeaveDecision.declined)),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ActionButton(
-                    label: 'Approve',
-                    background: MColors.terra,
-                    foreground: Colors.white,
-                    onTap: () =>
-                        bloc.add(DecideLeave(leave.id, LeaveDecision.approved)),
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Icon(
-                  leave.decision == LeaveDecision.approved
-                      ? Icons.check_circle_rounded
-                      : Icons.cancel_rounded,
-                  color: leave.decision == LeaveDecision.approved
-                      ? MColors.sageDeep
-                      : MColors.live,
-                ),
-                const SizedBox(width: 8),
+                const SizedBox(height: 13),
+                _LeaveDatePanel(leave: leave, colors: colors),
+                const SizedBox(height: 11),
                 Text(
-                  leave.decision == LeaveDecision.approved
-                      ? 'Approved'
-                      : 'Declined',
+                  leave.reason,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: MColors.inkSoft,
-                    fontWeight: FontWeight.w800,
+                    fontSize: 13.5,
+                    height: 1.55,
                   ),
                 ),
               ],
+            ),
+          ),
+          if (leave.decision == LeaveDecision.pending)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Decline',
+                      icon: Icons.close_rounded,
+                      background: Colors.white,
+                      foreground: MColors.inkSoft,
+                      border: MColors.line,
+                      onTap: () =>
+                          _confirmDecision(context, LeaveDecision.declined),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Approve',
+                      icon: Icons.check_rounded,
+                      background: MColors.sageDeep,
+                      foreground: Colors.white,
+                      onTap: () =>
+                          _confirmDecision(context, LeaveDecision.approved),
+                    ),
+                  ),
+                ],
+              ),
             ),
         ],
       ),
     );
   }
+
+  void _openDetails(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _LeaveRequestDetailPage(leave: leave, bloc: bloc),
+      ),
+    );
+  }
+
+  Future<void> _confirmDecision(
+    BuildContext context,
+    LeaveDecision decision,
+  ) async {
+    final confirmed = await _showLeaveDecisionSheet(context, leave, decision);
+    if (confirmed == true && context.mounted) {
+      bloc.add(DecideLeave(leave.id, decision));
+    }
+  }
 }
 
-class _OvertimeRequestCard extends StatelessWidget {
-  const _OvertimeRequestCard({required this.request, required this.onDecide});
+class _LeaveDatePanel extends StatelessWidget {
+  const _LeaveDatePanel({required this.leave, required this.colors});
 
-  final OvertimeRequest request;
-  final ValueChanged<LeaveDecision> onDecide;
-
-  void _decide(LeaveDecision decision) {
-    onDecide(decision);
-  }
+  final LeaveRequest leave;
+  final (Color, Color) colors;
 
   @override
   Widget build(BuildContext context) {
-    return PressableCard(
-      onTap: () => _showDetails(context),
-      padding: const EdgeInsets.all(15),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.$2,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
         children: [
-          Row(
-            children: [
-              AvatarBadge(
-                initial: request.initial,
-                index: request.avatarIndex,
-                size: 40,
+          Icon(Icons.calendar_month_rounded, size: 18, color: colors.$1),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _leaveDateRange(leave),
+              style: TextStyle(
+                color: colors.$1,
+                fontSize: 14.5,
+                fontWeight: FontWeight.w800,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      request.who,
-                      style: const TextStyle(
-                        color: MColors.ink,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 15.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${request.team} · ${_managerDate(request.workDate)}',
-                      style: const TextStyle(
-                        color: MColors.inkSoft,
-                        fontSize: 12.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: MColors.goldTint,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  request.duration,
-                  style: const TextStyle(
-                    color: MColors.gold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-          const SizedBox(height: 11),
           Text(
-            request.project,
-            style: const TextStyle(
-              color: MColors.ink,
-              fontSize: 14,
+            '${leave.days} ${leave.days == 1 ? 'day' : 'days'}',
+            style: TextStyle(
+              color: colors.$1.withValues(alpha: .85),
+              fontSize: 12.5,
               fontWeight: FontWeight.w700,
             ),
           ),
-          const SizedBox(height: 5),
-          Text(
-            _requestedAgo(request.requestedOn),
-            style: const TextStyle(color: MColors.inkFaint, fontSize: 12),
-          ),
-          const SizedBox(height: 14),
-          if (request.decision == LeaveDecision.pending)
-            Row(
-              children: [
-                Expanded(
-                  child: ActionButton(
-                    label: 'Decline',
-                    background: Colors.white,
-                    foreground: MColors.ink,
-                    border: MColors.line,
-                    onTap: () => _decide(LeaveDecision.declined),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ActionButton(
-                    label: 'Approve',
-                    background: MColors.terra,
-                    foreground: Colors.white,
-                    onTap: () => _decide(LeaveDecision.approved),
-                  ),
-                ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Icon(
-                  request.decision == LeaveDecision.approved
-                      ? Icons.check_circle_rounded
-                      : Icons.cancel_rounded,
-                  color: request.decision == LeaveDecision.approved
-                      ? MColors.sageDeep
-                      : MColors.live,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  request.decision == LeaveDecision.approved
-                      ? 'Approved'
-                      : 'Declined',
-                  style: const TextStyle(
-                    color: MColors.inkSoft,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
         ],
       ),
     );
   }
+}
 
-  void _showDetails(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (sheetContext) => Container(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: MColors.line,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'Overtime request',
-                style: TextStyle(
-                  color: MColors.ink,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${request.who} · ${request.team}',
-                style: const TextStyle(color: MColors.inkSoft, fontSize: 13.5),
-              ),
-              const SizedBox(height: 20),
-              _OvertimeDetailRow(
-                label: 'DATE',
-                value: _managerDate(request.workDate),
-              ),
-              _OvertimeDetailRow(label: 'DURATION', value: request.duration),
-              _OvertimeDetailRow(label: 'PROJECT', value: request.project),
-              const SizedBox(height: 8),
-              if (request.decision == LeaveDecision.pending)
-                Row(
-                  children: [
-                    Expanded(
-                      child: ActionButton(
-                        label: 'Decline',
-                        background: Colors.white,
-                        foreground: MColors.ink,
-                        border: MColors.line,
-                        onTap: () {
-                          Navigator.pop(sheetContext);
-                          _decide(LeaveDecision.declined);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ActionButton(
-                        label: 'Approve',
-                        background: MColors.terra,
-                        foreground: Colors.white,
-                        onTap: () {
-                          Navigator.pop(sheetContext);
-                          _decide(LeaveDecision.approved);
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-            ],
-          ),
+class _LeaveTypeChip extends StatelessWidget {
+  const _LeaveTypeChip({required this.type, this.large = false});
+
+  final String type;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = leavePalette(type);
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: large ? 12 : 9,
+        vertical: large ? 6 : 4,
+      ),
+      decoration: BoxDecoration(
+        color: colors.$2,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        type,
+        style: TextStyle(
+          color: colors.$1,
+          fontSize: large ? 13 : 11.5,
+          fontWeight: FontWeight.w800,
         ),
       ),
     );
   }
 }
 
-class _OvertimeDetailRow extends StatelessWidget {
-  const _OvertimeDetailRow({required this.label, required this.value});
-  final String label;
-  final String value;
+class _LeaveStatusPill extends StatelessWidget {
+  const _LeaveStatusPill({required this.decision});
+
+  final LeaveDecision decision;
 
   @override
-  Widget build(BuildContext context) => Container(
-    margin: const EdgeInsets.only(bottom: 10),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: MColors.bg,
-      borderRadius: BorderRadius.circular(14),
-    ),
-    child: Row(
-      children: [
-        SizedBox(
-          width: 82,
-          child: Text(
+  Widget build(BuildContext context) {
+    final approved = decision == LeaveDecision.approved;
+    final color = approved ? MColors.sageDeep : MColors.live;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: approved ? MColors.sageTint : const Color(0xFFFBE6E3),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            approved ? Icons.check_rounded : Icons.close_rounded,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            approved ? 'Approved' : 'Declined',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaveRequestDetailPage extends StatelessWidget {
+  const _LeaveRequestDetailPage({required this.leave, required this.bloc});
+
+  final LeaveRequest leave;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = leavePalette(leave.type);
+    return Scaffold(
+      backgroundColor: MColors.bg,
+      body: Column(
+        children: [
+          _TopBar(
+            title: 'Leave request',
+            sub: '${leave.who} · ${leave.team}',
+            onBack: () => Navigator.of(context).pop(),
+          ),
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+              children: [
+                PressableCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          AvatarBadge(
+                            initial: leave.initial,
+                            index: leave.avatarIndex,
+                            size: 50,
+                          ),
+                          const SizedBox(width: 13),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  leave.who,
+                                  style: const TextStyle(
+                                    color: MColors.ink,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Applied ${daysAgo(leave.requestedOn)} ago',
+                                  style: const TextStyle(
+                                    color: MColors.inkFaint,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          leave.decision == LeaveDecision.pending
+                              ? _LeaveTypeChip(type: leave.type, large: true)
+                              : _LeaveStatusPill(decision: leave.decision),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              child: _LeaveInfoTile(
+                                label: 'DATES',
+                                value: _leaveDateRange(leave),
+                                background: colors.$2,
+                                foreground: colors.$1,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            _LeaveInfoTile(
+                              label: 'DURATION',
+                              value:
+                                  '${leave.days} ${leave.days == 1 ? 'day' : 'days'}',
+                              background: const Color(0xFFF8F4EE),
+                              foreground: MColors.ink,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const _LeaveSectionLabel('REASON'),
+                const SizedBox(height: 7),
+                PressableCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    leave.reason,
+                    style: const TextStyle(
+                      color: MColors.ink,
+                      fontSize: 14.5,
+                      height: 1.65,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const _LeaveSectionLabel('REQUEST DETAILS'),
+                const SizedBox(height: 7),
+                PressableCard(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 5,
+                  ),
+                  child: Column(
+                    children: [
+                      _LeaveDetailRow(
+                        icon: Icons.event_available_rounded,
+                        label: 'Leave type',
+                        value: leave.type,
+                      ),
+                      const Divider(height: 1, color: MColors.line),
+                      _LeaveDetailRow(
+                        icon: Icons.schedule_rounded,
+                        label: 'Requested',
+                        value: '${daysAgo(leave.requestedOn)} ago',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (leave.decision == LeaveDecision.pending)
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: MColors.line)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 10,
+                      child: ActionButton(
+                        label: 'Decline',
+                        icon: Icons.close_rounded,
+                        background: Colors.white,
+                        foreground: MColors.inkSoft,
+                        border: MColors.line,
+                        onTap: () => _decide(context, LeaveDecision.declined),
+                      ),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      flex: 14,
+                      child: ActionButton(
+                        label: 'Approve',
+                        icon: Icons.check_rounded,
+                        background: MColors.sageDeep,
+                        foreground: Colors.white,
+                        onTap: () => _decide(context, LeaveDecision.approved),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _decide(BuildContext context, LeaveDecision decision) async {
+    final confirmed = await _showLeaveDecisionSheet(context, leave, decision);
+    if (confirmed != true || !context.mounted) return;
+    bloc.add(DecideLeave(leave.id, decision));
+    Navigator.of(context).pop();
+  }
+}
+
+class _LeaveInfoTile extends StatelessWidget {
+  const _LeaveInfoTile({
+    required this.label,
+    required this.value,
+    required this.background,
+    required this.foreground,
+  });
+
+  final String label;
+  final String value;
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
             label,
-            style: const TextStyle(
-              color: MColors.inkFaint,
+            style: TextStyle(
+              color: foreground.withValues(alpha: .75),
               fontSize: 11,
               fontWeight: FontWeight.w800,
               letterSpacing: .7,
             ),
           ),
-        ),
-        Expanded(
-          child: Text(
+          const SizedBox(height: 5),
+          Text(
             value,
-            textAlign: TextAlign.right,
-            style: const TextStyle(
-              color: MColors.ink,
-              fontSize: 14,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 15,
               fontWeight: FontWeight.w800,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LeaveSectionLabel extends StatelessWidget {
+  const _LeaveSectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4),
+    child: Text(
+      label,
+      style: const TextStyle(
+        color: MColors.inkFaint,
+        fontSize: 11.5,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 1,
+      ),
+    ),
+  );
+}
+
+class _LeaveDetailRow extends StatelessWidget {
+  const _LeaveDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 13),
+    child: Row(
+      children: [
+        Icon(icon, size: 19, color: MColors.inkFaint),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: MColors.ink,
+            fontSize: 13.5,
+            fontWeight: FontWeight.w800,
           ),
         ),
       ],
     ),
   );
+}
+
+Future<bool?> _showLeaveDecisionSheet(
+  BuildContext context,
+  LeaveRequest leave,
+  LeaveDecision decision,
+) {
+  final approve = decision == LeaveDecision.approved;
+  final accent = approve ? MColors.sageDeep : MColors.live;
+  return showModalBottomSheet<bool>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (sheetContext) => Container(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: MColors.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              approve ? 'Approve leave' : 'Decline leave',
+              style: const TextStyle(
+                color: MColors.ink,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    leave.who,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MColors.inkSoft,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _LeaveTypeChip(type: leave.type),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+              decoration: BoxDecoration(
+                color: MColors.bg,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.calendar_month_rounded,
+                    size: 18,
+                    color: MColors.inkFaint,
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      _leaveDateRange(leave),
+                      style: const TextStyle(
+                        color: MColors.ink,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    '${leave.days}d',
+                    style: const TextStyle(
+                      color: MColors.inkSoft,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  flex: 10,
+                  child: ActionButton(
+                    label: 'Cancel',
+                    background: Colors.white,
+                    foreground: MColors.inkSoft,
+                    border: MColors.line,
+                    onTap: () => Navigator.pop(sheetContext, false),
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  flex: 15,
+                  child: ActionButton(
+                    label: approve ? 'Confirm approve' : 'Confirm decline',
+                    icon: approve ? Icons.check_rounded : Icons.close_rounded,
+                    background: accent,
+                    foreground: Colors.white,
+                    onTap: () => Navigator.pop(sheetContext, true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+String _leaveDateRange(LeaveRequest leave) {
+  final start = '${leave.start.day} ${_monthName(leave.start.month)}';
+  if (leave.start.year == leave.end.year &&
+      leave.start.month == leave.end.month &&
+      leave.start.day == leave.end.day) {
+    return start;
+  }
+  return '$start – ${leave.end.day} ${_monthName(leave.end.month)}';
+}
+
+class _OvertimeRequestCard extends StatelessWidget {
+  const _OvertimeRequestCard({required this.request, required this.bloc});
+
+  final OvertimeRequest request;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableCard(
+      onTap: () => _openDetails(context),
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    AvatarBadge(
+                      initial: request.initial,
+                      index: request.avatarIndex,
+                      size: 42,
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            request.who,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.ink,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${request.team} · applied ${daysAgo(request.requestedOn)} ago',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.inkFaint,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    request.decision == LeaveDecision.pending
+                        ? _RequestChip(
+                            label: request.duration,
+                            foreground: MColors.gold,
+                            background: MColors.goldTint,
+                          )
+                        : _LeaveStatusPill(decision: request.decision),
+                  ],
+                ),
+                const SizedBox(height: 13),
+                _RequestHighlightPanel(
+                  icon: Icons.schedule_rounded,
+                  value: _managerDate(request.workDate),
+                  trailing: request.hours > 0
+                      ? '${request.hours.toStringAsFixed(request.hours == request.hours.roundToDouble() ? 0 : 1)} hrs'
+                      : request.duration,
+                  foreground: MColors.gold,
+                  background: MColors.goldTint,
+                ),
+                const SizedBox(height: 11),
+                Text(
+                  request.note.isEmpty ? request.project : request.note,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: MColors.inkSoft,
+                    fontSize: 13.5,
+                    height: 1.55,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (request.decision == LeaveDecision.pending)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Decline',
+                      icon: Icons.close_rounded,
+                      background: Colors.white,
+                      foreground: MColors.inkSoft,
+                      border: MColors.line,
+                      onTap: () =>
+                          _confirmDecision(context, LeaveDecision.declined),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Approve',
+                      icon: Icons.check_rounded,
+                      background: MColors.sageDeep,
+                      foreground: Colors.white,
+                      onTap: () =>
+                          _confirmDecision(context, LeaveDecision.approved),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _openDetails(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _OvertimeRequestDetailPage(request: request, bloc: bloc),
+      ),
+    );
+  }
+
+  Future<void> _confirmDecision(
+    BuildContext context,
+    LeaveDecision decision,
+  ) async {
+    final confirmed = await _showRequestDecisionSheet(
+      context,
+      approve: decision == LeaveDecision.approved,
+      requestName: 'overtime',
+      person: request.who,
+      chipLabel: request.duration,
+      chipForeground: MColors.gold,
+      chipBackground: MColors.goldTint,
+      icon: Icons.schedule_rounded,
+      value: _managerDate(request.workDate),
+      trailing: request.hours > 0 ? '${request.hours} hrs' : request.duration,
+    );
+    if (confirmed == true && context.mounted) {
+      bloc.add(DecideOvertime(request.id, decision));
+    }
+  }
+}
+
+class _ReimbursementRequestCard extends StatelessWidget {
+  const _ReimbursementRequestCard({required this.claim, required this.bloc});
+
+  final ReimbursementClaim claim;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) {
+    return PressableCard(
+      onTap: () => _openDetails(context),
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    AvatarBadge(
+                      initial: _nameInitials(claim.who),
+                      index: claim.who.hashCode.abs() % avatarColors.length,
+                      size: 42,
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            claim.who,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.ink,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 15.5,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${claim.team} · applied ${daysAgo(claim.createdAt)} ago',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: MColors.inkFaint,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    claim.status == 'Pending'
+                        ? _RequestChip(
+                            label: claim.category,
+                            foreground: MColors.teal,
+                            background: const Color(0xFFE4F3F0),
+                          )
+                        : _ReimbursementStatusPill(status: claim.status),
+                  ],
+                ),
+                const SizedBox(height: 13),
+                _RequestHighlightPanel(
+                  icon: Icons.receipt_long_rounded,
+                  value: _reimbursementAmount(claim.amount),
+                  trailing: _managerDate(claim.expenseDate),
+                  foreground: MColors.teal,
+                  background: const Color(0xFFE4F3F0),
+                ),
+                if (claim.note.isNotEmpty) ...[
+                  const SizedBox(height: 11),
+                  Text(
+                    claim.note,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MColors.inkSoft,
+                      fontSize: 13.5,
+                      height: 1.55,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (claim.status == 'Pending')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Decline',
+                      icon: Icons.close_rounded,
+                      background: Colors.white,
+                      foreground: MColors.inkSoft,
+                      border: MColors.line,
+                      onTap: () => _confirmDecision(context, 'declined'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Approve',
+                      icon: Icons.check_rounded,
+                      background: MColors.sageDeep,
+                      foreground: Colors.white,
+                      onTap: () => _confirmDecision(context, 'approved'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _openDetails(BuildContext context) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _ReimbursementRequestDetailPage(claim: claim, bloc: bloc),
+      ),
+    );
+  }
+
+  Future<void> _confirmDecision(BuildContext context, String decision) async {
+    final confirmed = await _showRequestDecisionSheet(
+      context,
+      approve: decision == 'approved',
+      requestName: 'reimbursement',
+      person: claim.who,
+      chipLabel: claim.category,
+      chipForeground: MColors.teal,
+      chipBackground: const Color(0xFFE4F3F0),
+      icon: Icons.receipt_long_rounded,
+      value: _reimbursementAmount(claim.amount),
+      trailing: _managerDate(claim.expenseDate),
+    );
+    if (confirmed == true && context.mounted) {
+      bloc.add(DecideReimbursement(claim.id, decision));
+    }
+  }
+}
+
+class _RequestChip extends StatelessWidget {
+  const _RequestChip({
+    required this.label,
+    required this.foreground,
+    required this.background,
+    this.large = false,
+  });
+
+  final String label;
+  final Color foreground;
+  final Color background;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: EdgeInsets.symmetric(
+      horizontal: large ? 12 : 9,
+      vertical: large ? 6 : 4,
+    ),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(99),
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: foreground,
+        fontSize: large ? 13 : 11.5,
+        fontWeight: FontWeight.w800,
+      ),
+    ),
+  );
+}
+
+class _RequestHighlightPanel extends StatelessWidget {
+  const _RequestHighlightPanel({
+    required this.icon,
+    required this.value,
+    required this.trailing,
+    required this.foreground,
+    required this.background,
+  });
+
+  final IconData icon;
+  final String value;
+  final String trailing;
+  final Color foreground;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        Icon(icon, size: 18, color: foreground),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          trailing,
+          style: TextStyle(
+            color: foreground.withValues(alpha: .85),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ReimbursementStatusPill extends StatelessWidget {
+  const _ReimbursementStatusPill({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final declined = status == 'Declined';
+    final color = declined ? MColors.live : MColors.sageDeep;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: declined ? const Color(0xFFFBE6E3) : MColors.sageTint,
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            declined ? Icons.close_rounded : Icons.check_rounded,
+            size: 13,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            status,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OvertimeRequestDetailPage extends StatelessWidget {
+  const _OvertimeRequestDetailPage({required this.request, required this.bloc});
+
+  final OvertimeRequest request;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => _ManagerRequestDetailPage(
+    title: 'Overtime request',
+    person: request.who,
+    team: request.team,
+    initial: request.initial,
+    avatarIndex: request.avatarIndex,
+    requestedOn: request.requestedOn,
+    chip: request.decision == LeaveDecision.pending
+        ? _RequestChip(
+            label: request.duration,
+            foreground: MColors.gold,
+            background: MColors.goldTint,
+            large: true,
+          )
+        : _LeaveStatusPill(decision: request.decision),
+    primaryLabel: 'WORK DATE',
+    primaryValue: _managerDate(request.workDate),
+    primaryForeground: MColors.gold,
+    primaryBackground: MColors.goldTint,
+    secondaryLabel: 'DURATION',
+    secondaryValue: request.hours > 0
+        ? '${request.hours.toStringAsFixed(request.hours == request.hours.roundToDouble() ? 0 : 1)} hours'
+        : request.duration,
+    noteLabel: request.note.isEmpty ? null : 'NOTE',
+    note: request.note.isEmpty ? null : request.note,
+    details: [
+      (Icons.work_outline_rounded, 'Project', request.project),
+      (
+        Icons.schedule_rounded,
+        'Requested',
+        '${daysAgo(request.requestedOn)} ago',
+      ),
+    ],
+    pending: request.decision == LeaveDecision.pending,
+    onDecline: () => _decide(context, LeaveDecision.declined),
+    onApprove: () => _decide(context, LeaveDecision.approved),
+  );
+
+  Future<void> _decide(BuildContext context, LeaveDecision decision) async {
+    final confirmed = await _showRequestDecisionSheet(
+      context,
+      approve: decision == LeaveDecision.approved,
+      requestName: 'overtime',
+      person: request.who,
+      chipLabel: request.duration,
+      chipForeground: MColors.gold,
+      chipBackground: MColors.goldTint,
+      icon: Icons.schedule_rounded,
+      value: _managerDate(request.workDate),
+      trailing: request.hours > 0 ? '${request.hours} hrs' : request.duration,
+    );
+    if (confirmed != true || !context.mounted) return;
+    bloc.add(DecideOvertime(request.id, decision));
+    Navigator.of(context).pop();
+  }
+}
+
+class _ReimbursementRequestDetailPage extends StatelessWidget {
+  const _ReimbursementRequestDetailPage({
+    required this.claim,
+    required this.bloc,
+  });
+
+  final ReimbursementClaim claim;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => _ManagerRequestDetailPage(
+    title: 'Reimbursement claim',
+    person: claim.who,
+    team: claim.team,
+    initial: _nameInitials(claim.who),
+    avatarIndex: claim.who.hashCode.abs() % avatarColors.length,
+    requestedOn: claim.createdAt,
+    chip: claim.status == 'Pending'
+        ? _RequestChip(
+            label: claim.category,
+            foreground: MColors.teal,
+            background: const Color(0xFFE4F3F0),
+            large: true,
+          )
+        : _ReimbursementStatusPill(status: claim.status),
+    primaryLabel: 'AMOUNT',
+    primaryValue: _reimbursementAmount(claim.amount),
+    primaryForeground: MColors.teal,
+    primaryBackground: const Color(0xFFE4F3F0),
+    secondaryLabel: 'EXPENSE DATE',
+    secondaryValue: _managerDate(claim.expenseDate),
+    noteLabel: claim.note.isEmpty ? null : 'NOTE',
+    note: claim.note.isEmpty ? null : claim.note,
+    details: [
+      (Icons.category_outlined, 'Category', claim.category),
+      if (claim.receiptName.isNotEmpty)
+        (Icons.attach_file_rounded, 'Receipt', claim.receiptName),
+      (Icons.schedule_rounded, 'Requested', '${daysAgo(claim.createdAt)} ago'),
+    ],
+    pending: claim.status == 'Pending',
+    onDecline: () => _decide(context, 'declined'),
+    onApprove: () => _decide(context, 'approved'),
+    footerAction: claim.status == 'Approved'
+        ? ActionButton(
+            label: 'Mark as paid',
+            icon: Icons.payments_outlined,
+            background: MColors.sageDeep,
+            foreground: Colors.white,
+            onTap: () {
+              bloc.add(DecideReimbursement(claim.id, 'paid'));
+              Navigator.of(context).pop();
+            },
+          )
+        : null,
+  );
+
+  Future<void> _decide(BuildContext context, String decision) async {
+    final confirmed = await _showRequestDecisionSheet(
+      context,
+      approve: decision == 'approved',
+      requestName: 'reimbursement',
+      person: claim.who,
+      chipLabel: claim.category,
+      chipForeground: MColors.teal,
+      chipBackground: const Color(0xFFE4F3F0),
+      icon: Icons.receipt_long_rounded,
+      value: _reimbursementAmount(claim.amount),
+      trailing: _managerDate(claim.expenseDate),
+    );
+    if (confirmed != true || !context.mounted) return;
+    bloc.add(DecideReimbursement(claim.id, decision));
+    Navigator.of(context).pop();
+  }
+}
+
+class _ManagerRequestDetailPage extends StatelessWidget {
+  const _ManagerRequestDetailPage({
+    required this.title,
+    required this.person,
+    required this.team,
+    required this.initial,
+    required this.avatarIndex,
+    required this.requestedOn,
+    required this.chip,
+    required this.primaryLabel,
+    required this.primaryValue,
+    required this.primaryForeground,
+    required this.primaryBackground,
+    required this.secondaryLabel,
+    required this.secondaryValue,
+    required this.details,
+    required this.pending,
+    required this.onDecline,
+    required this.onApprove,
+    this.noteLabel,
+    this.note,
+    this.footerAction,
+  });
+
+  final String title;
+  final String person;
+  final String team;
+  final String initial;
+  final int avatarIndex;
+  final DateTime requestedOn;
+  final Widget chip;
+  final String primaryLabel;
+  final String primaryValue;
+  final Color primaryForeground;
+  final Color primaryBackground;
+  final String secondaryLabel;
+  final String secondaryValue;
+  final List<(IconData, String, String)> details;
+  final bool pending;
+  final VoidCallback onDecline;
+  final VoidCallback onApprove;
+  final String? noteLabel;
+  final String? note;
+  final Widget? footerAction;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: MColors.bg,
+    body: Column(
+      children: [
+        _TopBar(
+          title: title,
+          sub: '$person · $team',
+          onBack: () => Navigator.of(context).pop(),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            children: [
+              PressableCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        AvatarBadge(
+                          initial: initial,
+                          index: avatarIndex,
+                          size: 50,
+                        ),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                person,
+                                style: const TextStyle(
+                                  color: MColors.ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Applied ${daysAgo(requestedOn)} ago',
+                                style: const TextStyle(
+                                  color: MColors.inkFaint,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(child: chip),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(
+                            child: _LeaveInfoTile(
+                              label: primaryLabel,
+                              value: primaryValue,
+                              background: primaryBackground,
+                              foreground: primaryForeground,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _LeaveInfoTile(
+                              label: secondaryLabel,
+                              value: secondaryValue,
+                              background: const Color(0xFFF8F4EE),
+                              foreground: MColors.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (note != null) ...[
+                const SizedBox(height: 18),
+                _LeaveSectionLabel(noteLabel!),
+                const SizedBox(height: 7),
+                PressableCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    note!,
+                    style: const TextStyle(
+                      color: MColors.ink,
+                      fontSize: 14.5,
+                      height: 1.65,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              const _LeaveSectionLabel('REQUEST DETAILS'),
+              const SizedBox(height: 7),
+              PressableCard(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 5,
+                ),
+                child: Column(
+                  children: [
+                    for (var index = 0; index < details.length; index++) ...[
+                      _LeaveDetailRow(
+                        icon: details[index].$1,
+                        label: details[index].$2,
+                        value: details[index].$3,
+                      ),
+                      if (index != details.length - 1)
+                        const Divider(height: 1, color: MColors.line),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (pending || footerAction != null)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: MColors.line)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: pending
+                  ? Row(
+                      children: [
+                        Expanded(
+                          flex: 10,
+                          child: ActionButton(
+                            label: 'Decline',
+                            icon: Icons.close_rounded,
+                            background: Colors.white,
+                            foreground: MColors.inkSoft,
+                            border: MColors.line,
+                            onTap: onDecline,
+                          ),
+                        ),
+                        const SizedBox(width: 11),
+                        Expanded(
+                          flex: 14,
+                          child: ActionButton(
+                            label: 'Approve',
+                            icon: Icons.check_rounded,
+                            background: MColors.sageDeep,
+                            foreground: Colors.white,
+                            onTap: onApprove,
+                          ),
+                        ),
+                      ],
+                    )
+                  : footerAction!,
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+Future<bool?> _showRequestDecisionSheet(
+  BuildContext context, {
+  required bool approve,
+  required String requestName,
+  required String person,
+  required String chipLabel,
+  required Color chipForeground,
+  required Color chipBackground,
+  required IconData icon,
+  required String value,
+  required String trailing,
+}) {
+  final accent = approve ? MColors.sageDeep : MColors.live;
+  return showModalBottomSheet<bool>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (sheetContext) => Container(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: MColors.line,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              '${approve ? 'Approve' : 'Decline'} $requestName',
+              style: const TextStyle(
+                color: MColors.ink,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 7),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    person,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: MColors.inkSoft,
+                      fontSize: 13.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _RequestChip(
+                  label: chipLabel,
+                  foreground: chipForeground,
+                  background: chipBackground,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+              decoration: BoxDecoration(
+                color: MColors.bg,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: MColors.inkFaint),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      value,
+                      style: const TextStyle(
+                        color: MColors.ink,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  Text(
+                    trailing,
+                    style: const TextStyle(
+                      color: MColors.inkSoft,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                Expanded(
+                  flex: 10,
+                  child: ActionButton(
+                    label: 'Cancel',
+                    background: Colors.white,
+                    foreground: MColors.inkSoft,
+                    border: MColors.line,
+                    onTap: () => Navigator.pop(sheetContext, false),
+                  ),
+                ),
+                const SizedBox(width: 11),
+                Expanded(
+                  flex: 15,
+                  child: ActionButton(
+                    label: approve ? 'Confirm approve' : 'Confirm decline',
+                    icon: approve ? Icons.check_rounded : Icons.close_rounded,
+                    background: accent,
+                    foreground: Colors.white,
+                    onTap: () => Navigator.pop(sheetContext, true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+String _reimbursementAmount(double amount) {
+  final whole = amount == amount.roundToDouble();
+  return '₹${amount.toStringAsFixed(whole ? 0 : 2)}';
 }
 
 class _AwardCard extends StatelessWidget {
@@ -3052,10 +4957,11 @@ class _MetricCard extends StatelessWidget {
 }
 
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, this.trailing});
+  const _SectionTitle({required this.title, this.trailing, this.onTap});
 
   final String title;
   final String? trailing;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -3075,12 +4981,19 @@ class _SectionTitle extends StatelessWidget {
             ),
           ),
           if (trailing != null)
-            Text(
-              trailing!,
-              style: const TextStyle(
-                color: MColors.inkSoft,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  trailing!,
+                  style: TextStyle(
+                    color: onTap == null ? MColors.inkSoft : MColors.terra,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
               ),
             ),
         ],
@@ -3510,13 +5423,28 @@ String shortDate(DateTime date) {
   return '${months[date.month - 1]} ${date.day}';
 }
 
+String _nameInitials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+'));
+  if (parts.isEmpty || parts.first.isEmpty) return '?';
+  final first = parts.first[0];
+  final last = parts.length > 1 && parts.last.isNotEmpty ? parts.last[0] : '';
+  return '$first$last'.toUpperCase();
+}
+
+String _periodLabel(String period) {
+  final date = DateTime.tryParse('$period-01');
+  return date == null ? period : _monthName(date.month).substring(0, 3);
+}
+
+String _periodTitle(String period) {
+  final date = DateTime.tryParse('$period-01');
+  return date == null ? period : '${_monthName(date.month)} ${date.year}';
+}
+
 String daysAgo(DateTime requestedOn) {
   final days = math.max(0, DateTime.now().difference(requestedOn).inDays);
   return days <= 1 ? '$days day' : '$days days';
 }
-
-String _requestedAgo(DateTime requestedOn) =>
-    'Requested ${daysAgo(requestedOn)} ago';
 
 String _managerDate(DateTime date) {
   const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -3552,6 +5480,7 @@ Color scoreColor(double score) {
   return switch (type) {
     'Sick' => (MColors.live, const Color(0xFFFBE6E3)),
     'Earned' => (MColors.teal, MColors.sageTint),
+    'Personal' => (MColors.plum, MColors.plumTint),
     _ => (MColors.gold, MColors.goldTint),
   };
 }

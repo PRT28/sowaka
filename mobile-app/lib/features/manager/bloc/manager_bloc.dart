@@ -131,6 +131,30 @@ class CloseFeedbackList extends ManagerEvent {
   const CloseFeedbackList();
 }
 
+class OpenLeaveRequests extends ManagerEvent {
+  const OpenLeaveRequests();
+}
+
+class CloseLeaveRequests extends ManagerEvent {
+  const CloseLeaveRequests();
+}
+
+class OpenOvertimeRequests extends ManagerEvent {
+  const OpenOvertimeRequests();
+}
+
+class CloseOvertimeRequests extends ManagerEvent {
+  const CloseOvertimeRequests();
+}
+
+class OpenReimbursementRequests extends ManagerEvent {
+  const OpenReimbursementRequests();
+}
+
+class CloseReimbursementRequests extends ManagerEvent {
+  const CloseReimbursementRequests();
+}
+
 class OpenFeedbackRecord extends ManagerEvent {
   const OpenFeedbackRecord(this.memberId);
   final int memberId;
@@ -189,6 +213,12 @@ class DecideOvertime extends ManagerEvent {
   const DecideOvertime(this.overtimeId, this.decision);
   final String overtimeId;
   final LeaveDecision decision;
+}
+
+class DecideReimbursement extends ManagerEvent {
+  const DecideReimbursement(this.claimId, this.decision);
+  final String claimId;
+  final String decision;
 }
 
 class OpenAwardPicker extends ManagerEvent {
@@ -275,9 +305,7 @@ class ManagerBloc {
 
   Stream<ManagerState> get stream => _controller.stream;
 
-  void add(ManagerEvent event) {
-    _handle(event);
-  }
+  Future<bool> add(ManagerEvent event) => _handle(event);
 
   void dispose() {
     _controller.close();
@@ -290,7 +318,7 @@ class ManagerBloc {
     }
   }
 
-  Future<void> _handle(ManagerEvent event) async {
+  Future<bool> _handle(ManagerEvent event) async {
     try {
       switch (event) {
         case LoadManagerDashboard():
@@ -304,7 +332,7 @@ class ManagerBloc {
             ),
           );
         case ChangeManagerTab(:final tab):
-          if (tab == ManagerTab.manage && !_state.canManage) return;
+          if (tab == ManagerTab.manage && !_state.canManage) return false;
           _emit(
             _state.copyWith(
               tab: tab,
@@ -324,11 +352,23 @@ class ManagerBloc {
               feedbackFilter: FeedbackFilter.all,
             ),
           );
+        case OpenLeaveRequests():
+          _emit(_state.copyWith(view: ManagerView.leaveRequests));
+        case CloseLeaveRequests():
+          _emit(_state.copyWith(view: ManagerView.home));
+        case OpenOvertimeRequests():
+          _emit(_state.copyWith(view: ManagerView.overtimeRequests));
+        case CloseOvertimeRequests():
+          _emit(_state.copyWith(view: ManagerView.home));
+        case OpenReimbursementRequests():
+          _emit(_state.copyWith(view: ManagerView.reimbursementRequests));
+        case CloseReimbursementRequests():
+          _emit(_state.copyWith(view: ManagerView.home));
         case OpenFeedbackRecord(:final memberId):
           final member = _state.dashboard?.team
               .where((item) => item.id == memberId)
               .firstOrNull;
-          if (member == null) return;
+          if (member == null) return false;
           _emit(
             _state.copyWith(
               view: ManagerView.feedbackRecord,
@@ -382,7 +422,7 @@ class ManagerBloc {
         case DecideLeave(:final leaveId, :final decision):
           final updatedLeave = await _service.decideLeave(leaveId, decision);
           final data = _state.dashboard;
-          if (data == null) return;
+          if (data == null) return false;
           final leaves = data.leaves.map((leave) {
             return leave.id == leaveId ? updatedLeave : leave;
           }).toList();
@@ -400,7 +440,7 @@ class ManagerBloc {
             decision,
           );
           final data = _state.dashboard;
-          if (data == null) return;
+          if (data == null) return false;
           final overtime = data.overtime.map((request) {
             return request.id == overtimeId ? updated : request;
           }).toList();
@@ -412,17 +452,34 @@ class ManagerBloc {
                   : 'Overtime declined',
             ),
           );
+        case DecideReimbursement(:final claimId, :final decision):
+          final updated = await _service.decideReimbursement(claimId, decision);
+          final data = _state.dashboard;
+          if (data == null) return false;
+          final claims = data.reimbursements.map((claim) {
+            return claim.id == claimId ? updated : claim;
+          }).toList();
+          _emit(
+            _state.copyWith(
+              dashboard: data.copyWith(reimbursements: claims),
+              message: switch (decision) {
+                'approved' => 'Reimbursement approved',
+                'paid' => 'Reimbursement marked as paid',
+                _ => 'Reimbursement declined',
+              },
+            ),
+          );
         case OpenAwardPicker(:final awardKey):
           _emit(_state.copyWith(awardPickerKey: awardKey));
         case CloseAwardPicker():
           _emit(_state.copyWith(clearAwardPicker: true));
         case NominateAward(:final awardKey, :final memberId):
           final data = _state.dashboard;
-          if (data == null) return;
+          if (data == null) return false;
           final member = data.recognitionCandidates
               .where((item) => item.id == memberId)
               .firstOrNull;
-          if (member == null) return;
+          if (member == null) return false;
           await _service.nominateAward(awardKey, member);
           final awards = data.awards.map((award) {
             return award.key == awardKey
@@ -507,6 +564,7 @@ class ManagerBloc {
         case ClearManagerMessage():
           _emit(_state.copyWith(clearMessage: true));
       }
+      return true;
     } catch (error) {
       _emit(
         _state.copyWith(
@@ -517,6 +575,7 @@ class ManagerBloc {
           message: _state.dashboard == null ? null : error.toString(),
         ),
       );
+      return false;
     }
   }
 
