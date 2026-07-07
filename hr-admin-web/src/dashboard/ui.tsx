@@ -176,6 +176,48 @@ export function SelectBox({
   );
 }
 
+export function DateRange({
+  from,
+  to,
+  onFrom,
+  onTo,
+}: {
+  from: string;
+  to: string;
+  onFrom: (v: string) => void;
+  onTo: (v: string) => void;
+}) {
+  const box: CSSProperties = {
+    border: 'none',
+    outline: 'none',
+    background: 'none',
+    fontSize: 12.5,
+    fontWeight: 700,
+    color: '#6E6457',
+    cursor: 'pointer',
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', background: '#fff', border: '1px solid #EBE1D2', borderRadius: 11, padding: '7px 11px', gap: 7 }}>
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#9B9082' }}>From</span>
+      <input type="date" value={from} max={to || undefined} onChange={(e) => onFrom(e.target.value)} style={box} />
+      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#9B9082' }}>to</span>
+      <input type="date" value={to} min={from || undefined} onChange={(e) => onTo(e.target.value)} style={box} />
+      {(from || to) && (
+        <button
+          onClick={() => {
+            onFrom('');
+            onTo('');
+          }}
+          title="Clear dates"
+          style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#B4A896', fontSize: 15, fontWeight: 700, lineHeight: 1, padding: '0 2px' }}
+        >
+          ×
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function Card({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
     <div style={{ background: '#fff', border: '1px solid #EFE6D8', borderRadius: 18, overflow: 'hidden', ...style }}>

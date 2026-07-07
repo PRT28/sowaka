@@ -1,7 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import {
   createReimbursementClaim,
-  decideReimbursement,
   getManagerReimbursementInbox,
   getMyReimbursementClaims,
   getReceiptDownloadUrl,
@@ -51,22 +50,13 @@ export async function listReimbursementInbox(req: Request, res: Response, next: 
   }
 }
 
-export async function updateReimbursementDecision(req: Request, res: Response, next: NextFunction) {
-  try {
-    const claim = await decideReimbursement(
-      requireUserId(req),
-      String(req.params.claimId ?? ''),
-      String(req.body.decision ?? ''),
-    );
-    res.status(200).json({ success: true, claim });
-  } catch (error) {
-    next(error);
-  }
-}
-
 export async function getReimbursementReceiptUrl(req: Request, res: Response, next: NextFunction) {
   try {
-    const receipt = await getReceiptDownloadUrl(requireUserId(req), String(req.params.claimId ?? ''));
+    const receipt = await getReceiptDownloadUrl(
+      requireUserId(req),
+      String(req.params.claimId ?? ''),
+      req.auth?.dashboardAccess === true,
+    );
     res.status(200).json({ success: true, receipt });
   } catch (error) {
     next(error);

@@ -53,6 +53,11 @@ export interface User {
   branch?: string;
   recognition?: UserRecognition;
   role?: 'manager' | 'employee';
+  // Leadership have no manager and do not raise approval-gated requests.
+  isLeadership?: boolean;
+  // Grants access to the HR dashboard (org-wide view + request overrides).
+  // Independent of the reporting role — a manager/employee may or may not have it.
+  dashboardAccess?: boolean;
   createdAt?: number;
   updatedAt?: Date;
   lastLoginAt?: Date;

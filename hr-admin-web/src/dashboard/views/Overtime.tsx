@@ -1,26 +1,47 @@
 import { useStore } from '../store';
 import { OTDUR, STAT } from '../theme';
 import type { ReqStatus } from '../theme';
-import { Avatar, Card, EmptyRow, Pill, SearchInput, StatusTabs, SummaryCard } from '../ui';
+import type { Overtime as OvertimeRow } from '../seed';
+import { inDateRange } from '../adapters';
+import { downloadCsv } from '../export';
+import { Avatar, Card, DateRange, EmptyRow, Pill, SearchInput, StatusTabs, SummaryCard } from '../ui';
 import { IconDownload } from '../icons';
 
-const COLS = '1.9fr 1.1fr 1.1fr 1.1fr .9fr 1.1fr';
+const COLS = '1.7fr 1fr 1.1fr 1fr .7fr 1.7fr 1.1fr';
 
 export function Overtime() {
   const s = useStore();
-  const all = s.ots;
+  const ranged = s.ots.filter((r) => inDateRange(r.refISO, s.otFrom, s.otTo));
   const summary = {
-    total: all.length,
-    pending: all.filter((r) => r.status === 'Pending').length,
-    approved: all.filter((r) => r.status === 'Approved').length,
-    declined: all.filter((r) => r.status === 'Declined').length,
+    total: ranged.length,
+    pending: ranged.filter((r) => r.status === 'Pending').length,
+    approved: ranged.filter((r) => r.status === 'Approved').length,
+    declined: ranged.filter((r) => r.status === 'Declined').length,
   };
 
-  let rows = all.slice();
+  let rows = ranged.slice();
   const q = s.otSearch.trim().toLowerCase();
   if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q));
   if (s.otStatus !== 'all') rows = rows.filter((r) => r.status === s.otStatus);
   rows.sort((a, b) => b.ord - a.ord);
+  const exportRows = () =>
+    downloadCsv<OvertimeRow>(
+      'overtime',
+      [
+        { header: 'Employee', value: (r) => r.name },
+        { header: 'Team', value: (r) => r.team },
+        { header: 'Applied on', value: (r) => r.appliedOn },
+        { header: 'Overtime date', value: (r) => r.otDate },
+        { header: 'Day', value: (r) => r.day },
+        { header: 'Duration', value: (r) => r.duration },
+        { header: 'Project', value: (r) => r.project },
+        { header: 'Note', value: (r) => r.eRemark },
+        { header: 'Manager', value: (r) => r.manager },
+        { header: 'Status', value: (r) => r.status },
+        { header: 'Decided by', value: (r) => (r.byAdmin ? 'admin' : 'manager') },
+      ],
+      rows,
+    );
 
   return (
     <div style={{ animation: 'fade .3s ease both' }}>
@@ -38,9 +59,11 @@ export function Overtime() {
           active={s.otStatus}
           onSelect={s.setOtStatus}
         />
+        <DateRange from={s.otFrom} to={s.otTo} onFrom={s.setOtFrom} onTo={s.setOtTo} />
         <button
-          onClick={() => s.flash(`Exported ${rows.length} overtime rows to CSV`)}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+          onClick={exportRows}
+          disabled={rows.length === 0}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: rows.length ? 'pointer' : 'not-allowed', opacity: rows.length ? 1 : 0.5 }}
         >
           <IconDownload /> Export
         </button>
@@ -53,6 +76,7 @@ export function Overtime() {
           <div>OVERTIME DATE</div>
           <div>DURATION</div>
           <div>DAY</div>
+          <div>NOTE</div>
           <div>STATUS</div>
         </div>
         {rows.map((r) => (
@@ -75,8 +99,9 @@ export function Overtime() {
               <Pill label={r.duration} tone={OTDUR[r.duration]} />
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.day}</div>
+            <div style={{ fontSize: 12.5, fontWeight: 500, color: r.eRemark ? '#6E6457' : '#B4A896', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.eRemark || ''}>{r.eRemark || '—'}</div>
             <div>
-              <Pill label={r.status} tone={STAT[r.status]} />
+              <Pill label={r.byAdmin ? `${r.status} · by admin` : r.status} tone={STAT[r.status]} />
             </div>
           </div>
         ))}

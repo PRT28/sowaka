@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { leaves, users } from '../config/db';
 import { Leave, LeaveStatus } from '../models/leave.model';
 import { User } from '../models/user.model';
+import { orgUsers } from './admin-scope';
 
 const leaveTypes = new Set<Leave['type']>(['sick', 'casual', 'earned']);
 const decisionStatuses = new Set<LeaveStatus>(['approved', 'declined']);
@@ -24,6 +25,7 @@ export interface LeaveView {
   managerNote?: string;
   createdAt: string;
   decidedAt?: string;
+  decidedByRole?: 'manager' | 'admin';
 }
 
 export async function applyForLeave(
@@ -220,6 +222,7 @@ export async function decideLeave(
   const updateFields: Partial<Leave> = {
     status: decision,
     decidedByUserId: managerUserId,
+    decidedByRole: 'manager',
     decidedAt,
     updatedAt: decidedAt,
   };
@@ -235,6 +238,70 @@ export async function decideLeave(
     throw new LeaveError(409, 'Leave request has already been decided');
   }
 
+  return toLeaveView(updated, employee);
+}
+
+/** Org-wide list of every leave, for the HR dashboard. */
+export async function listAllLeavesForAdmin(adminUserId: string): Promise<LeaveView[]> {
+  const employees = await orgUsers(adminUserId);
+  if (employees.length === 0) return [];
+  const employeeById = new Map(employees.map((e) => [e.userId, e]));
+  const documents = await leaves()
+    .find({ userId: { $in: employees.map((e) => e.userId) } })
+    .sort({ status: -1, createdAt: -1 })
+    .toArray();
+  return documents.flatMap((leave) => {
+    const employee = employeeById.get(leave.userId);
+    return employee ? [toLeaveView(leave, employee)] : [];
+  });
+}
+
+/**
+ * Dashboard override: a dashboard user decides any pending leave, regardless of
+ * reporting line. Records the decision as made by 'admin'. A user cannot override
+ * their own request (rule 8).
+ */
+export async function adminDecideLeave(
+  adminUserId: string,
+  leaveIdInput: string,
+  input: { decision: string; managerNote?: string },
+): Promise<LeaveView> {
+  if (!ObjectId.isValid(leaveIdInput)) throw new LeaveError(400, 'Invalid leave ID');
+  const decision = input.decision.trim().toLowerCase() as LeaveStatus;
+  if (!decisionStatuses.has(decision)) {
+    throw new LeaveError(400, 'Decision must be approved or declined');
+  }
+  const leaveId = new ObjectId(leaveIdInput);
+  const leave = await leaves().findOne({ _id: leaveId });
+  if (!leave) throw new LeaveError(404, 'Leave request not found');
+  if (leave.userId === adminUserId) {
+    throw new LeaveError(403, 'You cannot override your own request');
+  }
+  if (leave.status !== 'pending') {
+    throw new LeaveError(409, 'Leave request has already been decided');
+  }
+  const employee = await users().findOne({ userId: leave.userId });
+  if (!employee) throw new LeaveError(409, 'Leave has an invalid employee reference');
+
+  const managerNote = input.managerNote?.trim();
+  if (managerNote && managerNote.length > 500) {
+    throw new LeaveError(400, 'Note cannot exceed 500 characters');
+  }
+  const decidedAt = new Date();
+  const updateFields: Partial<Leave> = {
+    status: decision,
+    decidedByUserId: adminUserId,
+    decidedByRole: 'admin',
+    decidedAt,
+    updatedAt: decidedAt,
+  };
+  if (managerNote) updateFields.managerNote = managerNote;
+  const updated = await leaves().findOneAndUpdate(
+    { _id: leaveId, status: 'pending' },
+    { $set: updateFields },
+    { returnDocument: 'after' },
+  );
+  if (!updated) throw new LeaveError(409, 'Leave request has already been decided');
   return toLeaveView(updated, employee);
 }
 
@@ -281,6 +348,7 @@ function toLeaveView(leave: Leave & { _id: ObjectId }, employee: User): LeaveVie
     managerNote: leave.managerNote,
     createdAt: createdAt.toISOString(),
     decidedAt: leave.decidedAt?.toISOString(),
+    decidedByRole: leave.decidedByRole,
   };
 }
 

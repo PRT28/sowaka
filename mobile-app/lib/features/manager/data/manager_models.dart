@@ -208,6 +208,7 @@ class LeaveRequest {
     required this.requestedOn,
     required this.decision,
     required this.managerNote,
+    this.decidedByRole = '',
   });
 
   final String id;
@@ -223,6 +224,9 @@ class LeaveRequest {
   final DateTime requestedOn;
   final LeaveDecision decision;
   final String managerNote;
+  final String decidedByRole; // 'admin' = overridden from the HR dashboard
+
+  bool get decidedByAdmin => decidedByRole == 'admin';
 
   factory LeaveRequest.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -253,6 +257,7 @@ class LeaveRequest {
         _ => LeaveDecision.pending,
       },
       managerNote: json['managerNote'] as String? ?? '',
+      decidedByRole: json['decidedByRole'] as String? ?? '',
     );
   }
 
@@ -271,6 +276,7 @@ class LeaveRequest {
       requestedOn: requestedOn,
       decision: decision ?? this.decision,
       managerNote: managerNote ?? this.managerNote,
+      decidedByRole: decidedByRole,
     );
   }
 }
@@ -282,6 +288,7 @@ class AwardNomination {
     required this.subtitle,
     required this.icon,
     this.nomineeId,
+    this.reason,
   });
 
   final String key;
@@ -289,14 +296,42 @@ class AwardNomination {
   final String subtitle;
   final String icon;
   final int? nomineeId;
+  final String? reason;
 
-  AwardNomination copyWith({int? nomineeId}) {
+  bool get submitted => nomineeId != null;
+
+  AwardNomination copyWith({int? nomineeId, String? reason}) {
     return AwardNomination(
       key: key,
       title: title,
       subtitle: subtitle,
       icon: icon,
       nomineeId: nomineeId ?? this.nomineeId,
+      reason: reason ?? this.reason,
+    );
+  }
+}
+
+/// A past recognition nomination (any cycle), for the history view.
+class Nomination {
+  const Nomination({
+    required this.period,
+    required this.category,
+    required this.employeeName,
+    required this.reason,
+  });
+
+  final String period;
+  final String category;
+  final String employeeName;
+  final String reason;
+
+  factory Nomination.fromJson(Map<String, dynamic> json) {
+    return Nomination(
+      period: json['period'] as String? ?? '',
+      category: json['category'] as String? ?? '',
+      employeeName: json['employeeName'] as String? ?? 'Teammate',
+      reason: json['reason'] as String? ?? '',
     );
   }
 }
@@ -316,6 +351,7 @@ class OvertimeRequest {
     required this.requestedOn,
     required this.decision,
     required this.managerNote,
+    this.decidedByRole = '',
   });
 
   final String id;
@@ -331,6 +367,9 @@ class OvertimeRequest {
   final DateTime requestedOn;
   final LeaveDecision decision;
   final String managerNote;
+  final String decidedByRole; // 'admin' = overridden from the HR dashboard
+
+  bool get decidedByAdmin => decidedByRole == 'admin';
 
   factory OvertimeRequest.fromJson(Map<String, dynamic> json) {
     final employee = json['employee'] as Map<String, dynamic>? ?? const {};
@@ -355,6 +394,7 @@ class OvertimeRequest {
         _ => LeaveDecision.pending,
       },
       managerNote: json['managerNote'] as String? ?? '',
+      decidedByRole: json['decidedByRole'] as String? ?? '',
     );
   }
 
@@ -373,6 +413,7 @@ class OvertimeRequest {
       requestedOn: requestedOn,
       decision: decision ?? this.decision,
       managerNote: managerNote ?? this.managerNote,
+      decidedByRole: decidedByRole,
     );
   }
 }
@@ -389,6 +430,7 @@ class ReimbursementClaim {
     required this.note,
     required this.status,
     required this.createdAt,
+    this.decidedByRole = '',
   });
 
   final String id;
@@ -401,6 +443,15 @@ class ReimbursementClaim {
   final String note;
   final String status;
   final DateTime createdAt;
+  final String decidedByRole; // reimbursements are always decided from the dashboard ('admin')
+
+  bool get decidedByAdmin => decidedByRole == 'admin';
+
+  /// Status shown to the employee, e.g. "Approved by admin" for a dashboard decision.
+  String get statusLabel =>
+      decidedByAdmin && (status == 'Approved' || status == 'Declined')
+      ? '$status by admin'
+      : status;
 
   factory ReimbursementClaim.fromJson(Map<String, dynamic> json) {
     final category = json['category'] as String? ?? 'other';
@@ -425,6 +476,7 @@ class ReimbursementClaim {
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.now(),
+      decidedByRole: json['decidedByRole'] as String? ?? '',
     );
   }
 
@@ -440,6 +492,7 @@ class ReimbursementClaim {
       note: note,
       status: status ?? this.status,
       createdAt: createdAt,
+      decidedByRole: decidedByRole,
     );
   }
 }
@@ -458,6 +511,7 @@ class ManagerDashboard {
     required this.leaves,
     required this.myLeaves,
     required this.awards,
+    required this.recognitionHistory,
     required this.leaveBalance,
     required this.overtime,
     required this.myOvertime,
@@ -476,6 +530,7 @@ class ManagerDashboard {
   final List<LeaveRequest> leaves;
   final List<LeaveRequest> myLeaves;
   final List<AwardNomination> awards;
+  final List<Nomination> recognitionHistory;
   final LeaveBalance leaveBalance;
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
@@ -487,6 +542,7 @@ class ManagerDashboard {
     List<LeaveRequest>? leaves,
     List<LeaveRequest>? myLeaves,
     List<AwardNomination>? awards,
+    List<Nomination>? recognitionHistory,
     LeaveBalance? leaveBalance,
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
@@ -506,6 +562,7 @@ class ManagerDashboard {
       leaves: leaves ?? this.leaves,
       myLeaves: myLeaves ?? this.myLeaves,
       awards: awards ?? this.awards,
+      recognitionHistory: recognitionHistory ?? this.recognitionHistory,
       leaveBalance: leaveBalance ?? this.leaveBalance,
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,

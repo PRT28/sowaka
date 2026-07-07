@@ -5,15 +5,16 @@ import type { ReactNode } from 'react';
 import type { View, ReqStatus, FeedbackStatus } from './theme';
 import { emptyForm } from './seed';
 import type { Emp, Feedback, FbMgr, Leave, Overtime, Reimb, UserForm } from './seed';
-import { adaptLeave, adaptOvertime, adaptReimb, adaptWorkspace } from './adapters';
+import { adaptEmployees, adaptFeedbackList, adaptLeave, adaptOvertime, adaptReimb } from './adapters';
 import {
   decideLeave,
   decideOvertime,
   decideReimb,
+  getAllEmployees,
+  getAllFeedback,
   getLeaveInbox,
   getOvertimeInbox,
   getReimbInbox,
-  getWorkspace,
 } from '../services/hrms';
 import { ApiError } from '../services/http';
 import { useAuth } from './auth/AuthContext';
@@ -28,6 +29,15 @@ const first = (name: string) => name.split(' ')[0];
 function useProvideStore() {
   const { user, signOut } = useAuth();
   const managerName = user?.name ?? '';
+  const currentUserId = user?.id ?? '';
+  // Rule 8: a dashboard user cannot override a request they themselves submitted.
+  const blockSelfOverride = (submitterId?: string): boolean => {
+    if (submitterId && submitterId === currentUserId) {
+      flash('You cannot override your own request');
+      return true;
+    }
+    return false;
+  };
 
   const [view, setViewRaw] = useState<View>('overview');
   const [toast, setToast] = useState('');
@@ -41,9 +51,14 @@ function useProvideStore() {
   const [leaveStatus, setLeaveStatus] = useState<LeaveStatusFilter>('all');
   const [leaveType, setLeaveType] = useState('all');
   const [leaveSort, setLeaveSort] = useState('recent');
+  const [leaveFrom, setLeaveFrom] = useState('');
+  const [leaveTo, setLeaveTo] = useState('');
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [declineId, setDeclineId] = useState<string | null>(null);
   const [declineText, setDeclineText] = useState('');
+  // leave override confirm modal (approve/decline + note)
+  const [lvConfirm, setLvConfirm] = useState<{ id: string; action: 'approve' | 'decline' } | null>(null);
+  const [lvNote, setLvNote] = useState('');
 
   // feedback
   const [fbs, setFbs] = useState<Feedback[]>([]);
@@ -51,6 +66,8 @@ function useProvideStore() {
   const [fbStatus, setFbStatus] = useState<FbStatusFilter>('all');
   const [fbDrawerId, setFbDrawerId] = useState<string | null>(null);
   const [fbMgrs, setFbMgrs] = useState<FbMgr[]>([]);
+  const [fbFrom, setFbFrom] = useState('');
+  const [fbTo, setFbTo] = useState('');
 
   // reimbursements
   const [rbs, setRbs] = useState<Reimb[]>([]);
@@ -63,6 +80,9 @@ function useProvideStore() {
   const [rbDeclineText, setRbDeclineText] = useState('');
   const [rbBillId, setRbBillId] = useState<string | null>(null);
   const [rbConfirm, setRbConfirm] = useState<{ id: string; action: 'approve' | 'decline' } | null>(null);
+  const [rbNote, setRbNote] = useState('');
+  const [rbFrom, setRbFrom] = useState('');
+  const [rbTo, setRbTo] = useState('');
 
   // overtime
   const [ots, setOts] = useState<Overtime[]>([]);
@@ -71,6 +91,11 @@ function useProvideStore() {
   const [otDrawerId, setOtDrawerId] = useState<string | null>(null);
   const [otDeclineId, setOtDeclineId] = useState<string | null>(null);
   const [otDeclineText, setOtDeclineText] = useState('');
+  const [otFrom, setOtFrom] = useState('');
+  const [otTo, setOtTo] = useState('');
+  // overtime override confirm modal (approve/decline + note)
+  const [otConfirm, setOtConfirm] = useState<{ id: string; action: 'approve' | 'decline' } | null>(null);
+  const [otNote, setOtNote] = useState('');
 
   // employees
   const [emps, setEmps] = useState<Emp[]>([]);
@@ -101,19 +126,23 @@ function useProvideStore() {
     if (!user) return;
     setLoading(true);
     try {
-      const [lv, ot, rb, ws] = await Promise.all([
+      const [lv, ot, rb, fb, emp] = await Promise.all([
         getLeaveInbox(),
         getOvertimeInbox(),
         getReimbInbox(),
-        getWorkspace(),
+        getAllFeedback(),
+        getAllEmployees(),
       ]);
-      setLeaves(lv.map((d) => adaptLeave(d, user.name)));
-      setOts(ot.map((d) => adaptOvertime(d, user.name)));
-      setRbs(rb.map((d) => adaptReimb(d, user.name)));
-      const w = adaptWorkspace(ws, user);
-      setFbMgrs(w.fbMgrs);
-      setFbs(w.fbs);
-      setEmps(w.emps);
+      // Resolve each request's real manager (org-wide data spans many managers).
+      const mgrByUser = new Map(emp.map((e) => [e.userId, e.managerName ?? '']));
+      const mgrName = (userId: string) => mgrByUser.get(userId) || '—';
+      setLeaves(lv.map((d) => adaptLeave(d, mgrName(d.userId))));
+      setOts(ot.map((d) => adaptOvertime(d, mgrName(d.userId))));
+      setRbs(rb.map((d) => adaptReimb(d, mgrName(d.userId))));
+      const { fbs: fbRows, fbMgrs: fbManagers } = adaptFeedbackList(fb);
+      setFbMgrs(fbManagers);
+      setFbs(fbRows);
+      setEmps(adaptEmployees(emp));
       setLoaded(true);
     } catch (e) {
       handleError(e);
@@ -132,7 +161,10 @@ function useProvideStore() {
     setFbDrawerId(null);
     setRbDrawerId(null);
     setRbDeclineId(null);
+    setRbConfirm(null);
     setOtDrawerId(null);
+    setOtConfirm(null);
+    setLvConfirm(null);
     setEmpDrawerId(null);
     setAddOpen(false);
   };
@@ -145,11 +177,12 @@ function useProvideStore() {
   // ---- leave ----
   const approve = async (id: string) => {
     const r = leaves.find((l) => l.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
     setDrawerId(null);
     setDeclineId(null);
     try {
       const updated = await decideLeave(id, 'approved');
-      setLeaves((s) => s.map((l) => (l.id === id ? adaptLeave(updated, managerName) : l)));
+      setLeaves((s) => s.map((l) => (l.id === id ? adaptLeave(updated, r?.manager ?? managerName) : l)));
       flash(`${r ? first(r.name) : 'Leave'}’s leave approved`);
     } catch (e) {
       handleError(e);
@@ -166,13 +199,43 @@ function useProvideStore() {
   const confirmDecline = async (id: string) => {
     const txt = declineText.trim();
     const r = leaves.find((l) => l.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
     setDeclineId(null);
     setDeclineText('');
     setDrawerId(null);
     try {
       const updated = await decideLeave(id, 'declined', txt || undefined);
-      setLeaves((s) => s.map((l) => (l.id === id ? adaptLeave(updated, managerName) : l)));
+      setLeaves((s) => s.map((l) => (l.id === id ? adaptLeave(updated, r?.manager ?? managerName) : l)));
       flash(`${r ? first(r.name) : 'Leave'}’s leave declined`);
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  // Confirm modal for leave overrides — captures an optional note for why the
+  // request was overridden, on BOTH approve and decline.
+  const lvAsk = (id: string, action: 'approve' | 'decline') => {
+    const r = leaves.find((l) => l.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
+    setLvNote('');
+    setLvConfirm({ id, action });
+  };
+  const lvCloseConfirm = () => setLvConfirm(null);
+  const lvDecide = async () => {
+    if (!lvConfirm) return;
+    const { id, action } = lvConfirm;
+    const r = leaves.find((l) => l.id === id);
+    if (blockSelfOverride(r?.submitterId)) {
+      setLvConfirm(null);
+      return;
+    }
+    const note = lvNote.trim();
+    setLvConfirm(null);
+    setDrawerId(null);
+    try {
+      const updated = await decideLeave(id, action === 'approve' ? 'approved' : 'declined', note || undefined);
+      setLeaves((s) => s.map((l) => (l.id === id ? adaptLeave(updated, r?.manager ?? managerName) : l)));
+      flash(`${r ? first(r.name) : 'Leave'}’s leave ${action === 'approve' ? 'approved' : 'declined'}`);
     } catch (e) {
       handleError(e);
     }
@@ -181,12 +244,13 @@ function useProvideStore() {
   // ---- reimbursements ----
   const rbApprove = async (id: string) => {
     const r = rbs.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
     setRbDrawerId(null);
     setRbDeclineId(null);
     setRbConfirm(null);
     try {
-      const updated = await decideReimb(id, 'approved');
-      setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, managerName) : x)));
+      const updated = await decideReimb(id, 'approved', rbNote.trim() || undefined);
+      setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, r?.manager ?? managerName) : x)));
       flash(`${r ? first(r.name) : 'Claim'}’s claim approved`);
     } catch (e) {
       handleError(e);
@@ -202,13 +266,14 @@ function useProvideStore() {
   };
   const rbConfirmDecline = async (id: string) => {
     const r = rbs.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
     setRbDeclineId(null);
     setRbDeclineText('');
     setRbDrawerId(null);
     setRbConfirm(null);
     try {
-      const updated = await decideReimb(id, 'declined');
-      setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, managerName) : x)));
+      const updated = await decideReimb(id, 'declined', rbNote.trim() || undefined);
+      setRbs((s) => s.map((x) => (x.id === id ? adaptReimb(updated, r?.manager ?? managerName) : x)));
       flash(`${r ? first(r.name) : 'Claim'}’s claim declined`);
     } catch (e) {
       handleError(e);
@@ -216,7 +281,9 @@ function useProvideStore() {
   };
   // open a confirmation screen before deciding a claim
   const rbAsk = (id: string, action: 'approve' | 'decline') => {
-    if (action === 'decline') setRbDeclineText('');
+    const r = rbs.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
+    setRbNote('');
     setRbConfirm({ id, action });
   };
   const rbCloseConfirm = () => setRbConfirm(null);
@@ -236,11 +303,12 @@ function useProvideStore() {
   // ---- overtime ----
   const otApprove = async (id: string) => {
     const r = ots.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
     setOtDrawerId(null);
     setOtDeclineId(null);
     try {
       const updated = await decideOvertime(id, 'approved');
-      setOts((s) => s.map((x) => (x.id === id ? adaptOvertime(updated, managerName) : x)));
+      setOts((s) => s.map((x) => (x.id === id ? adaptOvertime(updated, r?.manager ?? managerName) : x)));
       flash(`${r ? first(r.name) : 'Overtime'}’s overtime approved`);
     } catch (e) {
       handleError(e);
@@ -256,13 +324,44 @@ function useProvideStore() {
   };
   const otConfirmDecline = async (id: string) => {
     const r = ots.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
+    const note = otDeclineText.trim();
     setOtDeclineId(null);
     setOtDeclineText('');
     setOtDrawerId(null);
     try {
-      const updated = await decideOvertime(id, 'declined');
-      setOts((s) => s.map((x) => (x.id === id ? adaptOvertime(updated, managerName) : x)));
+      const updated = await decideOvertime(id, 'declined', note || undefined);
+      setOts((s) => s.map((x) => (x.id === id ? adaptOvertime(updated, r?.manager ?? managerName) : x)));
       flash(`${r ? first(r.name) : 'Overtime'}’s overtime declined`);
+    } catch (e) {
+      handleError(e);
+    }
+  };
+
+  // Confirm modal for overtime overrides — captures an optional note on both
+  // approve and decline.
+  const otAsk = (id: string, action: 'approve' | 'decline') => {
+    const r = ots.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) return;
+    setOtNote('');
+    setOtConfirm({ id, action });
+  };
+  const otCloseConfirm = () => setOtConfirm(null);
+  const otDecide = async () => {
+    if (!otConfirm) return;
+    const { id, action } = otConfirm;
+    const r = ots.find((x) => x.id === id);
+    if (blockSelfOverride(r?.submitterId)) {
+      setOtConfirm(null);
+      return;
+    }
+    const note = otNote.trim();
+    setOtConfirm(null);
+    setOtDrawerId(null);
+    try {
+      const updated = await decideOvertime(id, action === 'approve' ? 'approved' : 'declined', note || undefined);
+      setOts((s) => s.map((x) => (x.id === id ? adaptOvertime(updated, r?.manager ?? managerName) : x)));
+      flash(`${r ? first(r.name) : 'Overtime'}’s overtime ${action === 'approve' ? 'approved' : 'declined'}`);
     } catch (e) {
       handleError(e);
     }
@@ -310,23 +409,28 @@ function useProvideStore() {
   return {
     view, setView,
     toast, flash, loading, loaded, reload,
-    user, signOut,
+    user, signOut, currentUserId,
     // leave
     leaves, leaveSearch, setLeaveSearch, leaveStatus, setLeaveStatus, leaveType, setLeaveType,
     leaveSort, setLeaveSort, drawerId, setDrawerId, declineId, declineText, setDeclineText,
     approve, openDecline, cancelDecline, confirmDecline,
+    leaveFrom, setLeaveFrom, leaveTo, setLeaveTo,
+    lvConfirm, lvNote, setLvNote, lvAsk, lvCloseConfirm, lvDecide,
     // feedback
     fbs, fbSearch, setFbSearch, fbStatus, setFbStatus, fbDrawerId, setFbDrawerId, fbMgrs,
-    remindMgr, remindAll,
+    remindMgr, remindAll, fbFrom, setFbFrom, fbTo, setFbTo,
     // reimbursements
     rbs, rbSearch, setRbSearch, rbStatus, setRbStatus, rbType, setRbType, rbSort, setRbSort,
     rbDrawerId, setRbDrawerId, rbDeclineId, rbDeclineText, setRbDeclineText,
     rbApprove, rbOpenDecline, rbCancelDecline, rbConfirmDecline,
-    rbBillId, setRbBillId, rbConfirm, rbAsk, rbCloseConfirm,
+    rbBillId, setRbBillId, rbConfirm, rbAsk, rbCloseConfirm, rbNote, setRbNote,
+    rbFrom, setRbFrom, rbTo, setRbTo,
     // overtime
     ots, otSearch, setOtSearch, otStatus, setOtStatus, otDrawerId, setOtDrawerId,
     otDeclineId, otDeclineText, setOtDeclineText,
     otApprove, otOpenDecline, otCancelDecline, otConfirmDecline,
+    otFrom, setOtFrom, otTo, setOtTo,
+    otConfirm, otNote, setOtNote, otAsk, otCloseConfirm, otDecide,
     // employees
     emps, empSearch, setEmpSearch, empTeam, setEmpTeam, empDrawerId, setEmpDrawerId,
     addOpen, setAddOpen, form, setFormField, saveUser,

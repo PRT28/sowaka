@@ -8,6 +8,7 @@ import {
   presignReceiptDownload,
   uploadReimbursementReceipt,
 } from './s3-receipt.service';
+import { orgUsers } from './admin-scope';
 
 const categories = new Set<ReimbursementClaim['category']>([
   'travel',
@@ -109,21 +110,44 @@ export async function getManagerReimbursementInbox(managerUserId: string) {
   });
 }
 
-export async function decideReimbursement(
-  managerUserId: string,
+/** Org-wide list of every reimbursement claim, for the HR dashboard. */
+export async function listAllReimbursementsForAdmin(adminUserId: string) {
+  const employees = await orgUsers(adminUserId);
+  if (employees.length === 0) return [];
+  const employeeById = new Map(employees.map((e) => [e.userId, e]));
+  const claims = await reimbursementClaims()
+    .find({ userId: { $in: employees.map((e) => e.userId) } })
+    .sort({ status: -1, createdAt: -1 })
+    .toArray();
+  return claims.flatMap((claim) => {
+    const employee = employeeById.get(claim.userId);
+    return employee ? [toView(claim, employee)] : [];
+  });
+}
+
+/**
+ * Reimbursements are decided ONLY from the HR dashboard (rule 3). A dashboard
+ * user decides any pending claim (decidedByRole 'admin'); they cannot decide
+ * their own claim (rule 8).
+ */
+export async function adminDecideReimbursement(
+  adminUserId: string,
   claimIdInput: string,
   decisionInput: string,
+  managerNote?: string,
 ) {
   if (!ObjectId.isValid(claimIdInput)) throw new ReimbursementError(400, 'Invalid claim ID');
   const decision = decisionInput.trim().toLowerCase() as ReimbursementStatus;
   if (!decisions.has(decision)) {
     throw new ReimbursementError(400, 'Decision must be approved, declined, or paid');
   }
+  const note = managerNote?.trim();
+  if (note && note.length > 500) throw new ReimbursementError(400, 'Override note is too long');
   const claimId = new ObjectId(claimIdInput);
   const claim = await reimbursementClaims().findOne({ _id: claimId });
   if (!claim) throw new ReimbursementError(404, 'Reimbursement claim not found');
-  if (claim.managerUserId !== managerUserId) {
-    throw new ReimbursementError(403, 'Only the assigned manager can decide this claim');
+  if (claim.userId === adminUserId) {
+    throw new ReimbursementError(403, 'You cannot decide your own reimbursement claim');
   }
   if (claim.status !== 'pending' && !(claim.status === 'approved' && decision === 'paid')) {
     throw new ReimbursementError(409, 'Reimbursement claim has already been decided');
@@ -136,9 +160,11 @@ export async function decideReimbursement(
     {
       $set: {
         status: decision,
-        decidedByUserId: managerUserId,
+        decidedByUserId: adminUserId,
+        decidedByRole: 'admin',
         decidedAt: now,
         updatedAt: now,
+        ...(note ? { managerNote: note } : {}),
         ...(decision === 'paid' ? { paidAt: now } : {}),
       },
     },
@@ -148,12 +174,16 @@ export async function decideReimbursement(
   return toView(updated, employee);
 }
 
-/// Presigned URL so the claim owner or their manager can view the stored bill.
-export async function getReceiptDownloadUrl(requesterUserId: string, claimIdInput: string) {
+/// Presigned URL so the owner, the claim's manager, or a dashboard user can view the bill.
+export async function getReceiptDownloadUrl(
+  requesterUserId: string,
+  claimIdInput: string,
+  isDashboardUser = false,
+) {
   if (!ObjectId.isValid(claimIdInput)) throw new ReimbursementError(400, 'Invalid claim ID');
   const claim = await reimbursementClaims().findOne({ _id: new ObjectId(claimIdInput) });
   if (!claim) throw new ReimbursementError(404, 'Reimbursement claim not found');
-  if (requesterUserId !== claim.userId && requesterUserId !== claim.managerUserId) {
+  if (!isDashboardUser && requesterUserId !== claim.userId && requesterUserId !== claim.managerUserId) {
     throw new ReimbursementError(403, 'You are not allowed to view this receipt');
   }
   if (!claim.receiptObjectKey) throw new ReimbursementError(404, 'This claim has no receipt');
@@ -176,10 +206,12 @@ function toView(claim: ReimbursementClaim & { _id: ObjectId }, employee: User) {
     receiptName: claim.receiptName,
     hasReceipt: Boolean(claim.receiptObjectKey),
     note: claim.note,
+    managerNote: claim.managerNote,
     status: claim.status,
     createdAt: claim.createdAt.toISOString(),
     decidedAt: claim.decidedAt?.toISOString(),
     paidAt: claim.paidAt?.toISOString(),
+    decidedByRole: claim.decidedByRole,
   };
 }
 
