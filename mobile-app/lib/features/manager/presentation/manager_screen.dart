@@ -11,6 +11,8 @@ import '../bloc/manager_bloc.dart';
 import '../data/manager_models.dart';
 import 'quick_actions_screen.dart';
 
+const int _maxLeaveApplyDays = 30;
+
 class ManagerScreen extends StatefulWidget {
   const ManagerScreen({super.key, required this.session});
 
@@ -512,25 +514,34 @@ class _FeedbackList extends StatelessWidget {
       return byGroup != 0 ? byGroup : a.next.compareTo(b.next);
     }
 
-    final overdue = open.where((item) => urgency(item) == 0).toList()
-      ..sort(sortByUrgency);
-    final soon = open.where((item) => urgency(item) == 1).toList()
-      ..sort(sortByUrgency);
-    final later = open.where((item) => urgency(item) == 2).toList()
-      ..sort(sortByUrgency);
+    final pending = open..sort(sortByUrgency);
+    final done = completed..sort((a, b) => b.next.compareTo(a.next));
     final query = state.searchQuery.trim().toLowerCase();
-    final visible = open.where((item) {
-      final matches =
-          query.isEmpty ||
-          item.name.toLowerCase().contains(query) ||
-          item.team.toLowerCase().contains(query);
-      if (!matches) return false;
-      return switch (state.feedbackFilter) {
-        FeedbackFilter.all => true,
-        FeedbackFilter.overdue => urgency(item) == 0,
-        FeedbackFilter.soon => urgency(item) == 1,
-      };
-    }).toList()..sort(sortByUrgency);
+    final visible =
+        data.team.where((item) {
+          final matches =
+              query.isEmpty ||
+              item.name.toLowerCase().contains(query) ||
+              item.team.toLowerCase().contains(query);
+          if (!matches) return false;
+          return switch (state.feedbackFilter) {
+            FeedbackFilter.all => true,
+            FeedbackFilter.pending => item.status != FeedbackStatus.sent,
+            FeedbackFilter.done => item.status == FeedbackStatus.sent,
+          };
+        }).toList()..sort((a, b) {
+          if (a.status == FeedbackStatus.sent &&
+              b.status != FeedbackStatus.sent) {
+            return 1;
+          }
+          if (a.status != FeedbackStatus.sent &&
+              b.status == FeedbackStatus.sent) {
+            return -1;
+          }
+          return a.status == FeedbackStatus.sent
+              ? b.next.compareTo(a.next)
+              : sortByUrgency(a, b);
+        });
     final grouped = state.feedbackFilter == FeedbackFilter.all && query.isEmpty;
     final progress = data.team.isEmpty
         ? 0.0
@@ -591,9 +602,9 @@ class _FeedbackList extends StatelessWidget {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _FeedbackStat(
-                      value: overdue.length,
-                      label: 'overdue',
-                      color: overdue.isEmpty ? MColors.sageDeep : MColors.live,
+                      value: done.length,
+                      label: 'done',
+                      color: MColors.sageDeep,
                     ),
                   ),
                 ],
@@ -640,32 +651,10 @@ class _FeedbackList extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              TextFormField(
-                key: ValueKey(state.searchQuery),
-                initialValue: state.searchQuery,
+              _FeedbackSearchField(
+                query: state.searchQuery,
                 onChanged: (value) => bloc.add(ChangeFeedbackSearch(value)),
-                decoration: InputDecoration(
-                  hintText: 'Find a teammate',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                  suffixIcon: state.searchQuery.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () =>
-                              bloc.add(const ChangeFeedbackSearch('')),
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                        ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(13),
-                    borderSide: const BorderSide(color: MColors.line),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(13),
-                    borderSide: const BorderSide(color: MColors.terra),
-                  ),
-                ),
+                onClear: () => bloc.add(const ChangeFeedbackSearch('')),
               ),
               const SizedBox(height: 12),
               SingleChildScrollView(
@@ -674,7 +663,7 @@ class _FeedbackList extends StatelessWidget {
                   children: [
                     _FeedbackFilterChip(
                       label: 'All',
-                      count: open.length,
+                      count: data.team.length,
                       selected: state.feedbackFilter == FeedbackFilter.all,
                       onTap: () => bloc.add(
                         const ChangeFeedbackFilter(FeedbackFilter.all),
@@ -682,22 +671,22 @@ class _FeedbackList extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     _FeedbackFilterChip(
-                      label: 'Overdue',
-                      count: overdue.length,
-                      dot: MColors.live,
-                      selected: state.feedbackFilter == FeedbackFilter.overdue,
+                      label: 'Pending',
+                      count: pending.length,
+                      dot: MColors.gold,
+                      selected: state.feedbackFilter == FeedbackFilter.pending,
                       onTap: () => bloc.add(
-                        const ChangeFeedbackFilter(FeedbackFilter.overdue),
+                        const ChangeFeedbackFilter(FeedbackFilter.pending),
                       ),
                     ),
                     const SizedBox(width: 8),
                     _FeedbackFilterChip(
-                      label: 'Due soon',
-                      count: soon.length,
-                      dot: MColors.gold,
-                      selected: state.feedbackFilter == FeedbackFilter.soon,
+                      label: 'Done',
+                      count: done.length,
+                      dot: MColors.sageDeep,
+                      selected: state.feedbackFilter == FeedbackFilter.done,
                       onTap: () => bloc.add(
-                        const ChangeFeedbackFilter(FeedbackFilter.soon),
+                        const ChangeFeedbackFilter(FeedbackFilter.done),
                       ),
                     ),
                   ],
@@ -714,82 +703,48 @@ class _FeedbackList extends StatelessWidget {
                   ),
                 )
               else if (grouped) ...[
-                if (overdue.isNotEmpty) ...[
+                if (pending.isNotEmpty) ...[
                   const _FeedbackGroupHeader(
-                    label: 'Overdue',
-                    color: MColors.live,
+                    label: 'Pending',
+                    color: MColors.gold,
                   ),
                   _FeedbackRows(
-                    members: overdue,
+                    members: pending,
                     today: data.today,
                     bloc: bloc,
                   ),
                 ],
-                if (soon.isNotEmpty) ...[
+                if (done.isNotEmpty) ...[
                   const _FeedbackGroupHeader(
-                    label: 'Due soon',
-                    color: MColors.gold,
+                    label: 'Done',
+                    color: MColors.sageDeep,
                   ),
-                  _FeedbackRows(members: soon, today: data.today, bloc: bloc),
+                  _GivenFeedbackRows(members: done, bloc: bloc),
                 ],
-                if (later.isNotEmpty) ...[
-                  const _FeedbackGroupHeader(
-                    label: 'Later this cycle',
-                    color: MColors.inkFaint,
+              ] else if (state.feedbackFilter == FeedbackFilter.done)
+                _GivenFeedbackRows(members: visible, bloc: bloc)
+              else if (state.feedbackFilter == FeedbackFilter.all) ...[
+                if (visible.any((item) => item.status != FeedbackStatus.sent))
+                  _FeedbackRows(
+                    members: visible
+                        .where((item) => item.status != FeedbackStatus.sent)
+                        .toList(),
+                    today: data.today,
+                    bloc: bloc,
                   ),
-                  _FeedbackRows(members: later, today: data.today, bloc: bloc),
+                if (visible.any(
+                  (item) => item.status == FeedbackStatus.sent,
+                )) ...[
+                  const SizedBox(height: 10),
+                  _GivenFeedbackRows(
+                    members: visible
+                        .where((item) => item.status == FeedbackStatus.sent)
+                        .toList(),
+                    bloc: bloc,
+                  ),
                 ],
               ] else
                 _FeedbackRows(members: visible, today: data.today, bloc: bloc),
-              if (completed.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                PressableCard(
-                  color: const Color(0xFFEFE7DA),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 12,
-                  ),
-                  onTap: () => bloc.add(const ToggleGivenFeedback()),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: MColors.sageDeep,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Icon(
-                          Icons.check_rounded,
-                          size: 14,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(width: 9),
-                      Expanded(
-                        child: Text(
-                          '${completed.length} given this cycle',
-                          style: const TextStyle(
-                            color: MColors.inkSoft,
-                            fontSize: 14.5,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        state.showGiven
-                            ? Icons.keyboard_arrow_up_rounded
-                            : Icons.keyboard_arrow_down_rounded,
-                        color: MColors.inkSoft,
-                      ),
-                    ],
-                  ),
-                ),
-                if (state.showGiven) ...[
-                  const SizedBox(height: 10),
-                  _GivenFeedbackRows(members: completed, bloc: bloc),
-                ],
-              ],
             ],
           ),
         ),
@@ -837,6 +792,75 @@ class _FeedbackStat extends StatelessWidget {
           ),
         ),
       ],
+    ),
+  );
+}
+
+class _FeedbackSearchField extends StatefulWidget {
+  const _FeedbackSearchField({
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  State<_FeedbackSearchField> createState() => _FeedbackSearchFieldState();
+}
+
+class _FeedbackSearchFieldState extends State<_FeedbackSearchField> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.query);
+  }
+
+  @override
+  void didUpdateWidget(covariant _FeedbackSearchField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.query != _controller.text) {
+      _controller.value = TextEditingValue(
+        text: widget.query,
+        selection: TextSelection.collapsed(offset: widget.query.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => TextFormField(
+    controller: _controller,
+    onChanged: widget.onChanged,
+    decoration: InputDecoration(
+      hintText: 'Find a teammate',
+      prefixIcon: const Icon(Icons.search_rounded, size: 20),
+      suffixIcon: widget.query.isEmpty
+          ? null
+          : IconButton(
+              onPressed: widget.onClear,
+              icon: const Icon(Icons.close_rounded, size: 18),
+            ),
+      filled: true,
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: MColors.line),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(13),
+        borderSide: const BorderSide(color: MColors.terra),
+      ),
     ),
   );
 }
@@ -1674,6 +1698,7 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
         : scored.fold<double>(0, (sum, item) => sum + item.score) /
               state.recordParams.length;
     final overallColor = scoreColor(overall <= 0 ? 1 : overall);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return ColoredBox(
       key: const ValueKey('record-feedback'),
@@ -1740,51 +1765,57 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
               child: _tab == 0
                   ? Column(
                       children: [
-                        const SizedBox(height: 17),
-                        const Text(
-                          'OVERALL SCORE',
-                          style: TextStyle(
-                            color: MColors.inkFaint,
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 1.35,
+                        if (keyboardOpen)
+                          const SizedBox(height: 10)
+                        else ...[
+                          const SizedBox(height: 17),
+                          const Text(
+                            'OVERALL SCORE',
+                            style: TextStyle(
+                              color: MColors.inkFaint,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.35,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          width: 88,
-                          height: 88,
-                          decoration: BoxDecoration(
-                            color: overall == 0
-                                ? const Color(0xFFD9CDBC)
-                                : overallColor,
-                            shape: BoxShape.circle,
-                          ),
-                          alignment: Alignment.center,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                overall == 0 ? '—' : overall.toStringAsFixed(1),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 34,
-                                  height: .95,
-                                  fontWeight: FontWeight.w800,
+                          const SizedBox(height: 8),
+                          Container(
+                            width: 88,
+                            height: 88,
+                            decoration: BoxDecoration(
+                              color: overall == 0
+                                  ? const Color(0xFFD9CDBC)
+                                  : overallColor,
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  overall == 0
+                                      ? '—'
+                                      : overall.toStringAsFixed(1),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 34,
+                                    height: .95,
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
-                              ),
-                              const Text(
-                                'out of 5',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w700,
+                                const Text(
+                                  'out of 5',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 16),
+                          const SizedBox(height: 16),
+                        ],
                         Expanded(
                           child: state.recordParams.isEmpty
                               ? const Center(
@@ -1850,7 +1881,7 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
                               ),
                             ),
                           ),
-                        if (!locked)
+                        if (!locked && !keyboardOpen)
                           SafeArea(
                             top: false,
                             bottom: false,
@@ -2006,246 +2037,43 @@ class _PastFeedbackTab extends StatelessWidget {
         child: _EmptyPastFeedback(),
       );
     }
+    final record = GrowthRecord(
+      period:
+          '${member.next.year}-${member.next.month.toString().padLeft(2, '0')}',
+      overallScore: overall,
+      parameters: member.params,
+      sentAt: member.next,
+      managerName: 'Manager',
+    );
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 30),
       children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: MColors.line),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Text(
-                    'TREND',
-                    style: TextStyle(
-                      color: MColors.inkFaint,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'overall, month by month',
-                    style: TextStyle(color: MColors.inkSoft, fontSize: 13),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    overall.toStringAsFixed(1),
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 42,
-                      height: .9,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(bottom: 2),
-                    child: Text(
-                      '/5',
-                      style: TextStyle(
-                        color: MColors.inkFaint,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 11,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFDEEBE9),
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    child: const Row(
-                      children: [
-                        Icon(
-                          Icons.trending_up_rounded,
-                          size: 16,
-                          color: MColors.teal,
-                        ),
-                        SizedBox(width: 5),
-                        Text(
-                          'Latest',
-                          style: TextStyle(
-                            color: MColors.teal,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(
-                  value: (overall / 5).clamp(0.0, 1.0),
-                  minHeight: 8,
-                  color: color,
-                  backgroundColor: MColors.line,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 18),
-        InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _showMonth(context, member, overall, color),
-          child: _PastFeedbackMonthCard(
-            member: member,
-            overall: overall,
-            color: color,
-            showChevron: true,
+        const Text(
+          'Trend',
+          style: TextStyle(
+            color: MColors.ink,
+            fontSize: 18,
+            letterSpacing: -0.1,
+            fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 12),
+        _GrowthChart(records: [record], values: [overall], color: color),
+        const SizedBox(height: 22),
+        const _GrowthSectionLabel('MONTH BY MONTH'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 205,
+          child: _GrowthMonthCard(record: record, parameter: null),
+        ),
+        const SizedBox(height: 22),
         const Text(
           'Full history is retained ✦',
           textAlign: TextAlign.center,
           style: TextStyle(color: MColors.inkFaint, fontSize: 12),
         ),
       ],
-    );
-  }
-
-  void _showMonth(
-    BuildContext context,
-    TeamMember member,
-    double overall,
-    Color color,
-  ) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * .78,
-        ),
-        decoration: const BoxDecoration(
-          color: MColors.bg,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 42,
-                height: 4,
-                margin: const EdgeInsets.only(top: 10, bottom: 16),
-                decoration: BoxDecoration(
-                  color: MColors.line,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '${_monthName(member.next.month)} ${member.next.year}',
-                        style: const TextStyle(
-                          color: MColors.ink,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    Text(
-                      '${overall.toStringAsFixed(1)}/5',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                  children: member.params
-                      .where((item) => item.score > 0)
-                      .map(
-                        (item) => Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: MColors.line),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      item.name,
-                                      style: const TextStyle(
-                                        color: MColors.ink,
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                  Text(
-                                    '${item.score.toStringAsFixed(1)}/5',
-                                    style: TextStyle(
-                                      color: scoreColor(item.score),
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              if (item.note.isNotEmpty) ...[
-                                const SizedBox(height: 9),
-                                Text(
-                                  item.note,
-                                  style: const TextStyle(
-                                    color: MColors.inkSoft,
-                                    fontSize: 13.5,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -2521,7 +2349,6 @@ class _LegacyRecordFeedback extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
-                          key: ValueKey('extra-${state.recordExtra}'),
                           initialValue: state.recordExtra,
                           enabled: !locked,
                           maxLines: 4,
@@ -2892,13 +2719,11 @@ class _PastFeedbackMonthCard extends StatelessWidget {
     required this.member,
     required this.overall,
     required this.color,
-    this.showChevron = false,
   });
 
   final TeamMember member;
   final double overall;
   final Color color;
-  final bool showChevron;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -2956,14 +2781,6 @@ class _PastFeedbackMonthCard extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            if (showChevron) ...[
-              const SizedBox(width: 5),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: MColors.inkFaint,
-                size: 20,
-              ),
-            ],
           ],
         ),
         if (member.params.isNotEmpty) ...[
@@ -3573,8 +3390,16 @@ class _GrowthMonthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final score = parameter?.score ?? 0;
-    final note = parameter?.note ?? 'No feedback was recorded in this cycle.';
+    final score = parameter?.score ?? record.overallScore;
+    final notes = record.parameters
+        .where((item) => item.note.trim().isNotEmpty)
+        .map((item) => '${item.name}: ${item.note.trim()}')
+        .join('\n\n');
+    final note = parameter?.note.trim().isNotEmpty == true
+        ? parameter!.note
+        : notes.isNotEmpty
+        ? notes
+        : 'No feedback was recorded in this cycle.';
     return PressableCard(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -4141,7 +3966,7 @@ class _LeaveCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${leave.team} · applied ${daysAgo(leave.requestedOn)} ago',
+                            '${leave.team} · ${_appliedTimestamp(leave.requestedOn)}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -4152,14 +3977,16 @@ class _LeaveCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    leave.decision == LeaveDecision.pending
-                        ? _LeaveTypeChip(type: leave.type)
-                        : _LeaveStatusPill(decision: leave.decision),
+                    if (leave.decision != LeaveDecision.pending) ...[
+                      const SizedBox(width: 8),
+                      _LeaveStatusPill(decision: leave.decision),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 13),
                 _LeaveDatePanel(leave: leave, colors: colors),
+                const SizedBox(height: 10),
+                _LeaveTypeChip(type: leave.type),
                 const SizedBox(height: 11),
                 Text(
                   leave.reason,
@@ -4171,6 +3998,11 @@ class _LeaveCard extends StatelessWidget {
                     height: 1.55,
                   ),
                 ),
+                if (leave.decision == LeaveDecision.declined &&
+                    leave.managerNote.isNotEmpty) ...[
+                  const SizedBox(height: 11),
+                  _ReviewedDeclineNote(note: leave.managerNote),
+                ],
               ],
             ),
           ),
@@ -4310,22 +4142,20 @@ class _LeaveStatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final approved = decision == LeaveDecision.approved;
-    final color = approved ? MColors.sageDeep : MColors.live;
+    final color = approved ? MColors.sageDeep : MColors.terraDeep;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: approved ? MColors.sageTint : const Color(0xFFFBE6E3),
+        color: approved ? MColors.sageTint : MColors.terraTint,
         borderRadius: BorderRadius.circular(99),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            approved ? Icons.check_rounded : Icons.close_rounded,
-            size: 13,
-            color: color,
-          ),
-          const SizedBox(width: 5),
+          if (approved) ...[
+            Icon(Icons.check_rounded, size: 13, color: color),
+            const SizedBox(width: 5),
+          ],
           Text(
             approved ? 'Approved' : 'Declined',
             style: TextStyle(
@@ -4388,7 +4218,7 @@ class _LeaveRequestDetailPage extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 2),
                                 Text(
-                                  'Applied ${daysAgo(leave.requestedOn)} ago',
+                                  _appliedTimestamp(leave.requestedOn),
                                   style: const TextStyle(
                                     color: MColors.inkFaint,
                                     fontSize: 13,
@@ -4444,6 +4274,23 @@ class _LeaveRequestDetailPage extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (leave.decision == LeaveDecision.declined &&
+                    leave.managerNote.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  const _LeaveSectionLabel('DECLINE NOTE'),
+                  const SizedBox(height: 7),
+                  PressableCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      leave.managerNote,
+                      style: const TextStyle(
+                        color: MColors.ink,
+                        fontSize: 14.5,
+                        height: 1.65,
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 18),
                 const _LeaveSectionLabel('REQUEST DETAILS'),
                 const SizedBox(height: 7),
@@ -4463,7 +4310,7 @@ class _LeaveRequestDetailPage extends StatelessWidget {
                       _LeaveDetailRow(
                         icon: Icons.schedule_rounded,
                         label: 'Requested',
-                        value: '${daysAgo(leave.requestedOn)} ago',
+                        value: _requestTimestamp(leave.requestedOn),
                       ),
                     ],
                   ),
@@ -4517,7 +4364,6 @@ class _LeaveRequestDetailPage extends StatelessWidget {
     final result = await _showLeaveDecisionSheet(context, leave, decision);
     if (result == null || !context.mounted) return;
     bloc.add(DecideLeave(leave.id, decision, managerNote: result.managerNote));
-    Navigator.of(context).pop();
   }
 }
 
@@ -4567,6 +4413,46 @@ class _LeaveInfoTile extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ReviewedDeclineNote extends StatelessWidget {
+  const _ReviewedDeclineNote({required this.note});
+
+  final String note;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: MColors.terraTint,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Decline note',
+          style: TextStyle(
+            color: MColors.terraDeep,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          note,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: MColors.inkSoft,
+            fontSize: 13,
+            height: 1.45,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _LeaveSectionLabel extends StatelessWidget {
@@ -4638,7 +4524,7 @@ Future<_DecisionSheetResult?> _showLeaveDecisionSheet(
   LeaveDecision decision,
 ) async {
   final approve = decision == LeaveDecision.approved;
-  final accent = approve ? MColors.sageDeep : MColors.live;
+  final accent = approve ? MColors.sageDeep : MColors.terra;
   final noteController = TextEditingController();
   try {
     return await showModalBottomSheet<_DecisionSheetResult>(
@@ -4738,6 +4624,12 @@ Future<_DecisionSheetResult?> _showLeaveDecisionSheet(
                       ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  _LeaveDetailRow(
+                    icon: Icons.schedule_rounded,
+                    label: 'Applied',
+                    value: _requestTimestamp(leave.requestedOn),
+                  ),
                   const SizedBox(height: 18),
                   if (!approve) ...[
                     const Text(
@@ -4780,9 +4672,7 @@ Future<_DecisionSheetResult?> _showLeaveDecisionSheet(
                           label: approve
                               ? 'Confirm approve'
                               : 'Confirm decline',
-                          icon: approve
-                              ? Icons.check_rounded
-                              : Icons.close_rounded,
+                          icon: approve ? Icons.check_rounded : null,
                           background:
                               !approve && noteController.text.trim().isEmpty
                               ? MColors.line
@@ -4823,6 +4713,18 @@ String _leaveDateRange(LeaveRequest leave) {
     return start;
   }
   return '$start – ${leave.end.day} ${_monthName(leave.end.month)}';
+}
+
+String _appliedTimestamp(DateTime value) {
+  return 'applied ${daysAgo(value)} ago · ${_requestTimestamp(value)}';
+}
+
+String _requestTimestamp(DateTime value) {
+  final local = value.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final minute = local.minute.toString().padLeft(2, '0');
+  final suffix = local.hour >= 12 ? 'PM' : 'AM';
+  return '${local.day} ${_monthName(local.month)} ${local.year}, $hour:$minute $suffix';
 }
 
 class _OvertimeRequestCard extends StatelessWidget {
@@ -5722,6 +5624,7 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
   String _type = 'Casual';
   late DateTime _startDate;
   late DateTime _endDate;
+  int _step = 0;
   final TextEditingController _reasonController = TextEditingController();
 
   @override
@@ -5739,11 +5642,23 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
   }
 
   Future<void> _selectDate({required bool start}) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     final selected = await showDatePicker(
       context: context,
       initialDate: start ? _startDate : _endDate,
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: today.subtract(const Duration(days: 365)),
+      lastDate: today.add(const Duration(days: 365)),
+      selectableDayPredicate: (day) {
+        final date = DateTime(day.year, day.month, day.day);
+        if (!_canSelectLeaveDay(date)) return false;
+        if (!start && date.isBefore(_startDate)) return false;
+        if (!start &&
+            date.difference(_startDate).inDays >= _maxLeaveApplyDays) {
+          return false;
+        }
+        return true;
+      },
     );
     if (selected == null || !mounted) return;
     setState(() {
@@ -5754,6 +5669,58 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
         _endDate = selected;
       }
     });
+  }
+
+  bool _canSelectLeaveDay(DateTime day) {
+    return day.weekday != DateTime.saturday &&
+        day.weekday != DateTime.sunday &&
+        !_isCompanyHoliday(day);
+  }
+
+  bool _isCompanyHoliday(DateTime day) {
+    final holidays =
+        widget.state.dashboard?.holidays ?? const <CompanyHoliday>[];
+    return holidays.any(
+      (holiday) =>
+          holiday.date.year == day.year &&
+          holiday.date.month == day.month &&
+          holiday.date.day == day.day,
+    );
+  }
+
+  bool _rangeHasBlockedDay() {
+    for (
+      var day = _startDate;
+      !day.isAfter(_endDate);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (!_canSelectLeaveDay(day)) return true;
+    }
+    return false;
+  }
+
+  void _continueFromDates() {
+    if (_endDate.isBefore(_startDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('End date cannot be before start date')),
+      );
+      return;
+    }
+    if (_endDate.difference(_startDate).inDays + 1 > _maxLeaveApplyDays) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Leave cannot exceed 30 days')),
+      );
+      return;
+    }
+    if (_rangeHasBlockedDay()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Leave cannot include weekends or holidays'),
+        ),
+      );
+      return;
+    }
+    setState(() => _step = 1);
   }
 
   void _submit() {
@@ -5852,64 +5819,84 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
                             ),
                           ),
                           const SizedBox(height: 14),
-                          Wrap(
-                            spacing: 8,
-                            children: ['Sick', 'Casual', 'Earned'].map((type) {
-                              final selected = _type == type;
-                              return ChoiceChip(
-                                label: Text(type),
-                                selected: selected,
-                                onSelected: (_) => setState(() => _type = type),
-                                selectedColor: MColors.ink,
-                                labelStyle: TextStyle(
-                                  color: selected
-                                      ? Colors.white
-                                      : MColors.inkSoft,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                backgroundColor: Colors.white,
-                                side: const BorderSide(color: MColors.line),
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 14),
-                          TextFormField(
-                            key: ValueKey(
-                              'leave-start-${_startDate.toIso8601String()}',
+                          if (_step == 0) ...[
+                            TextFormField(
+                              key: ValueKey(
+                                'leave-start-${_startDate.toIso8601String()}',
+                              ),
+                              readOnly: true,
+                              initialValue: MaterialLocalizations.of(
+                                context,
+                              ).formatMediumDate(_startDate),
+                              onTap: () => _selectDate(start: true),
+                              decoration: _fieldDecoration('Start date'),
                             ),
-                            readOnly: true,
-                            initialValue: MaterialLocalizations.of(
-                              context,
-                            ).formatMediumDate(_startDate),
-                            onTap: () => _selectDate(start: true),
-                            decoration: _fieldDecoration('Start date'),
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            key: ValueKey(
-                              'leave-end-${_endDate.toIso8601String()}',
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              key: ValueKey(
+                                'leave-end-${_endDate.toIso8601String()}',
+                              ),
+                              readOnly: true,
+                              initialValue: MaterialLocalizations.of(
+                                context,
+                              ).formatMediumDate(_endDate),
+                              onTap: () => _selectDate(start: false),
+                              decoration: _fieldDecoration('End date'),
                             ),
-                            readOnly: true,
-                            initialValue: MaterialLocalizations.of(
-                              context,
-                            ).formatMediumDate(_endDate),
-                            onTap: () => _selectDate(start: false),
-                            decoration: _fieldDecoration('End date'),
-                          ),
-                          const SizedBox(height: 10),
-                          TextFormField(
-                            controller: _reasonController,
-                            maxLines: 3,
-                            maxLength: 500,
-                            decoration: _fieldDecoration('Reason'),
-                          ),
+                            const SizedBox(height: 10),
+                            const Text(
+                              'Weekends and company holidays are unavailable.',
+                              style: TextStyle(
+                                color: MColors.inkFaint,
+                                fontSize: 12.5,
+                              ),
+                            ),
+                          ] else ...[
+                            Wrap(
+                              spacing: 8,
+                              children: ['Sick', 'Casual', 'Earned'].map((
+                                type,
+                              ) {
+                                final selected = _type == type;
+                                return ChoiceChip(
+                                  label: Text(type),
+                                  selected: selected,
+                                  onSelected: (_) =>
+                                      setState(() => _type = type),
+                                  selectedColor: MColors.ink,
+                                  labelStyle: TextStyle(
+                                    color: selected
+                                        ? Colors.white
+                                        : MColors.inkSoft,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                  backgroundColor: Colors.white,
+                                  side: const BorderSide(color: MColors.line),
+                                );
+                              }).toList(),
+                            ),
+                            const SizedBox(height: 14),
+                            TextFormField(
+                              controller: _reasonController,
+                              maxLines: 3,
+                              maxLength: 500,
+                              decoration: _fieldDecoration('Reason'),
+                            ),
+                          ],
                           const SizedBox(height: 16),
                           ActionButton(
-                            label: 'Submit request',
+                            label: _step == 0
+                                ? 'Apply leave'
+                                : 'Submit request',
                             background: MColors.terra,
                             foreground: Colors.white,
-                            onTap: _submit,
+                            onTap: _step == 0 ? _continueFromDates : _submit,
                           ),
+                          if (_step == 1)
+                            TextButton(
+                              onPressed: () => setState(() => _step = 0),
+                              child: const Text('Back'),
+                            ),
                         ],
                       ),
               ),
@@ -5944,147 +5931,194 @@ class _ParamCard extends StatefulWidget {
 
 class _ParamCardState extends State<_ParamCard> {
   bool _help = false;
+  final GlobalKey _noteKey = GlobalKey();
+  late final TextEditingController _noteController;
+
+  @override
+  void initState() {
+    super.initState();
+    _noteController = TextEditingController(text: widget.param.note);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ParamCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.param.name != oldWidget.param.name ||
+        widget.param.note != _noteController.text) {
+      _noteController.value = TextEditingValue(
+        text: widget.param.note,
+        selection: TextSelection.collapsed(offset: widget.param.note.length),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  void _ensureNoteVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final noteContext = _noteKey.currentContext;
+      if (noteContext == null) return;
+      Scrollable.ensureVisible(
+        noteContext,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        alignment: 0.72,
+      );
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final color = scoreColor(widget.param.score <= 0 ? 1 : widget.param.score);
-    return PressableCard(
-      padding: const EdgeInsets.all(17),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        widget.param.name,
-                        style: const TextStyle(
-                          color: MColors.ink,
-                          fontSize: 17,
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.only(bottom: keyboardOpen ? 96 : 0),
+      child: PressableCard(
+        padding: const EdgeInsets.all(17),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          widget.param.name,
+                          style: const TextStyle(
+                            color: MColors.ink,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(99),
+                        onTap: () => setState(() => _help = !_help),
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            color: _help ? MColors.terra : MColors.terraTint,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.info_outline_rounded,
+                            size: 15,
+                            color: _help ? Colors.white : MColors.terra,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: widget.param.score <= 0
+                            ? '—'
+                            : widget.param.score.toStringAsFixed(1),
+                        style: TextStyle(
+                          color: color,
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 21,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    InkWell(
-                      borderRadius: BorderRadius.circular(99),
-                      onTap: () => setState(() => _help = !_help),
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: _help ? MColors.terra : MColors.terraTint,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.info_outline_rounded,
-                          size: 15,
-                          color: _help ? Colors.white : MColors.terra,
+                      const TextSpan(
+                        text: '/5',
+                        style: TextStyle(
+                          color: MColors.inkFaint,
+                          fontFamily: 'Plus Jakarta Sans',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: widget.param.score <= 0
-                          ? '—'
-                          : widget.param.score.toStringAsFixed(1),
-                      style: TextStyle(
-                        color: color,
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 21,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const TextSpan(
-                      text: '/5',
-                      style: TextStyle(
-                        color: MColors.inkFaint,
-                        fontFamily: 'Plus Jakarta Sans',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+              ],
+            ),
+            if (_help) ...[
+              const SizedBox(height: 14),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(13),
+                decoration: BoxDecoration(
+                  color: MColors.terraTint,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  paramHelp(widget.param.name),
+                  style: const TextStyle(
+                    color: MColors.inkSoft,
+                    fontSize: 13.5,
+                    height: 1.5,
+                  ),
                 ),
               ),
             ],
-          ),
-          if (_help) ...[
             const SizedBox(height: 14),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(13),
-              decoration: BoxDecoration(
-                color: MColors.terraTint,
-                borderRadius: BorderRadius.circular(12),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: color,
+                inactiveTrackColor: MColors.line,
+                thumbColor: color,
+                overlayColor: color.withValues(alpha: .14),
+                trackHeight: 8,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
               ),
-              child: Text(
-                paramHelp(widget.param.name),
-                style: const TextStyle(
-                  color: MColors.inkSoft,
-                  fontSize: 13.5,
-                  height: 1.5,
-                ),
+              child: Slider(
+                min: 1,
+                max: 5,
+                divisions: 8,
+                value: math.max(1, widget.param.score),
+                onChanged: widget.locked ? null : widget.onScore,
+              ),
+            ),
+            Text(
+              widget.param.score >= 4
+                  ? 'Exceeds expectation'
+                  : widget.param.score >= 2.5
+                  ? 'Meets expectation'
+                  : widget.param.score > 0
+                  ? 'Needs work'
+                  : 'Drag to score',
+              style: TextStyle(
+                color: widget.param.score > 0 ? color : MColors.inkFaint,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: _noteKey,
+              controller: _noteController,
+              enabled: !widget.locked,
+              maxLines: 3,
+              scrollPadding: const EdgeInsets.only(bottom: 140),
+              onTap: _ensureNoteVisible,
+              onChanged: widget.onNote,
+              decoration: _fieldDecoration(
+                'Add a note — type or record by voice…',
+                suffix: widget.listening
+                    ? Icons.mic_rounded
+                    : Icons.mic_none_rounded,
+                suffixActive: widget.listening,
+                onSuffixTap: widget.locked ? null : widget.onVoice,
               ),
             ),
           ],
-          const SizedBox(height: 14),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: color,
-              inactiveTrackColor: MColors.line,
-              thumbColor: color,
-              overlayColor: color.withValues(alpha: .14),
-              trackHeight: 8,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
-            ),
-            child: Slider(
-              min: 1,
-              max: 5,
-              divisions: 8,
-              value: math.max(1, widget.param.score),
-              onChanged: widget.locked ? null : widget.onScore,
-            ),
-          ),
-          Text(
-            widget.param.score >= 4
-                ? 'Exceeds expectation'
-                : widget.param.score >= 2.5
-                ? 'Meets expectation'
-                : widget.param.score > 0
-                ? 'Needs work'
-                : 'Drag to score',
-            style: TextStyle(
-              color: widget.param.score > 0 ? color : MColors.inkFaint,
-              fontSize: 12.5,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            key: ValueKey('${widget.param.name}-${widget.param.note}'),
-            initialValue: widget.param.note,
-            enabled: !widget.locked,
-            maxLines: 3,
-            onChanged: widget.onNote,
-            decoration: _fieldDecoration(
-              'Add a note — type or record by voice…',
-              suffix: widget.listening
-                  ? Icons.mic_rounded
-                  : Icons.mic_none_rounded,
-              suffixActive: widget.listening,
-              onSuffixTap: widget.locked ? null : widget.onVoice,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

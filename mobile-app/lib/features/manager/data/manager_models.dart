@@ -193,6 +193,26 @@ class LeaveBalance {
   }
 }
 
+class CompanyHoliday {
+  const CompanyHoliday({
+    required this.id,
+    required this.date,
+    required this.name,
+  });
+
+  final String id;
+  final DateTime date;
+  final String name;
+
+  factory CompanyHoliday.fromJson(Map<String, dynamic> json) {
+    return CompanyHoliday(
+      id: json['id'] as String? ?? '',
+      date: DateTime.parse(json['date'] as String),
+      name: json['name'] as String? ?? 'Holiday',
+    );
+  }
+}
+
 class LeaveRequest {
   const LeaveRequest({
     required this.id,
@@ -459,6 +479,7 @@ class ManagerDashboard {
     required this.myLeaves,
     required this.awards,
     required this.leaveBalance,
+    required this.holidays,
     required this.overtime,
     required this.myOvertime,
     required this.myReimbursements,
@@ -477,6 +498,7 @@ class ManagerDashboard {
   final List<LeaveRequest> myLeaves;
   final List<AwardNomination> awards;
   final LeaveBalance leaveBalance;
+  final List<CompanyHoliday> holidays;
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
   final List<ReimbursementClaim> myReimbursements;
@@ -488,6 +510,7 @@ class ManagerDashboard {
     List<LeaveRequest>? myLeaves,
     List<AwardNomination>? awards,
     LeaveBalance? leaveBalance,
+    List<CompanyHoliday>? holidays,
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
     List<ReimbursementClaim>? myReimbursements,
@@ -507,6 +530,7 @@ class ManagerDashboard {
       myLeaves: myLeaves ?? this.myLeaves,
       awards: awards ?? this.awards,
       leaveBalance: leaveBalance ?? this.leaveBalance,
+      holidays: holidays ?? this.holidays,
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,
       myReimbursements: myReimbursements ?? this.myReimbursements,

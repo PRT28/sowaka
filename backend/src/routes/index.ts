@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authRouter } from './auth.routes';
 import { healthRouter } from './health.routes';
+import { holidayRouter } from './holiday.routes';
 import { leaveRouter } from './leave.routes';
 import { reportingRouter } from './reporting.routes';
 import { managerRouter } from './manager.routes';
@@ -11,6 +12,7 @@ export const router = Router();
 
 router.use('/auth', authRouter);
 router.use('/health', healthRouter);
+router.use('/holidays', holidayRouter);
 router.use('/leaves', leaveRouter);
 router.use('/manager', managerRouter);
 router.use('/overtime', overtimeRouter);

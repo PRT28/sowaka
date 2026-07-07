@@ -1,8 +1,9 @@
 import { ObjectId } from 'mongodb';
-import { leaves, users } from '../config/db';
+import { holidays, leaves, users } from '../config/db';
 import { Leave, LeaveStatus } from '../models/leave.model';
 import { User } from '../models/user.model';
 
+const maxLeaveDays = 30;
 const leaveTypes = new Set<Leave['type']>(['sick', 'casual', 'earned']);
 const decisionStatuses = new Set<LeaveStatus>(['approved', 'declined']);
 
@@ -58,12 +59,9 @@ export async function applyForLeave(
     throw new LeaveError(400, 'End date cannot be before start date');
   }
 
-  const today = startOfUtcDay(new Date());
-  if (startDate < today) {
-    throw new LeaveError(400, 'Leave cannot start in the past');
-  }
-  if (inclusiveDays(startDate, endDate) > 365) {
-    throw new LeaveError(400, 'Leave cannot exceed 365 days');
+  const days = inclusiveDays(startDate, endDate);
+  if (days > maxLeaveDays) {
+    throw new LeaveError(400, `Leave cannot exceed ${maxLeaveDays} days`);
   }
 
   const reason = input.reason.trim();
@@ -79,6 +77,11 @@ export async function applyForLeave(
   });
   if (overlap) {
     throw new LeaveError(409, 'A pending or approved leave already overlaps these dates');
+  }
+
+  const blockedDate = await firstBlockedDate(employee.org ?? 'default', startDate, endDate);
+  if (blockedDate) {
+    throw new LeaveError(400, `Leave cannot include ${blockedDate.reason}: ${blockedDate.date}`);
   }
 
   const createdAt = Date.now();
@@ -255,6 +258,35 @@ function startOfUtcDay(date: Date): Date {
 
 function inclusiveDays(startDate: Date, endDate: Date): number {
   return Math.floor((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+}
+
+async function firstBlockedDate(
+  org: string,
+  startDate: Date,
+  endDate: Date,
+): Promise<{ date: string; reason: string } | null> {
+  const holidayDocuments = await holidays()
+    .find({ org, date: { $gte: startDate, $lte: endDate } })
+    .project<{ date: Date; name: string }>({ date: 1, name: 1 })
+    .toArray();
+  const holidayByDate = new Map(
+    holidayDocuments.map((holiday) => [holiday.date.toISOString().slice(0, 10), holiday.name]),
+  );
+
+  for (let cursor = startDate; cursor <= endDate; cursor = addUtcDays(cursor, 1)) {
+    const date = cursor.toISOString().slice(0, 10);
+    const day = cursor.getUTCDay();
+    if (day === 0 || day === 6) {
+      return { date, reason: day === 0 ? 'Sunday' : 'Saturday' };
+    }
+    const holidayName = holidayByDate.get(date);
+    if (holidayName) return { date, reason: holidayName };
+  }
+  return null;
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + days));
 }
 
 function balanceItem(total: number, used: number) {
