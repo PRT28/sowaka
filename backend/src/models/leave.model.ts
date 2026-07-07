@@ -9,6 +9,7 @@ export interface Leave {
   status: LeaveStatus;
   managerNote?: string;
   decidedByUserId?: string; // -> User.userId
+  decidedByRole?: 'manager' | 'admin'; // 'admin' = overridden from the HR dashboard
   decidedAt?: Date;
   createdAt?: number;
   updatedAt?: Date;

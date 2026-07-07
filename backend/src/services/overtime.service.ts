@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import { overtimeRequests, users } from '../config/db';
 import { OvertimeRequest, OvertimeStatus } from '../models/overtime.model';
 import { User } from '../models/user.model';
+import { orgUsers } from './admin-scope';
 
 const decisions = new Set<OvertimeStatus>(['approved', 'declined']);
 
@@ -107,6 +108,67 @@ export async function decideOvertime(
         status: decision,
         ...(managerNote ? { managerNote } : {}),
         decidedByUserId: managerUserId,
+        decidedByRole: 'manager',
+        decidedAt: now,
+        updatedAt: now,
+      },
+    },
+    { returnDocument: 'after' },
+  );
+  if (!updated) throw new OvertimeError(409, 'Overtime request has already been decided');
+  return toView(updated, employee);
+}
+
+/** Org-wide list of every overtime request, for the HR dashboard. */
+export async function listAllOvertimeForAdmin(adminUserId: string) {
+  const employees = await orgUsers(adminUserId);
+  if (employees.length === 0) return [];
+  const employeeById = new Map(employees.map((e) => [e.userId, e]));
+  const requests = await overtimeRequests()
+    .find({ userId: { $in: employees.map((e) => e.userId) } })
+    .sort({ status: -1, createdAt: -1 })
+    .toArray();
+  return requests.flatMap((request) => {
+    const employee = employeeById.get(request.userId);
+    return employee ? [toView(request, employee)] : [];
+  });
+}
+
+/** Dashboard override for overtime — decidedByRole 'admin', no self-override (rule 8). */
+export async function adminDecideOvertime(
+  adminUserId: string,
+  requestIdInput: string,
+  input: { decision: string; managerNote?: string },
+) {
+  if (!ObjectId.isValid(requestIdInput)) throw new OvertimeError(400, 'Invalid overtime ID');
+  const decision = input.decision.trim().toLowerCase() as OvertimeStatus;
+  if (!decisions.has(decision)) {
+    throw new OvertimeError(400, 'Decision must be approved or declined');
+  }
+  const requestId = new ObjectId(requestIdInput);
+  const request = await overtimeRequests().findOne({ _id: requestId });
+  if (!request) throw new OvertimeError(404, 'Overtime request not found');
+  if (request.userId === adminUserId) {
+    throw new OvertimeError(403, 'You cannot override your own request');
+  }
+  if (request.status !== 'pending') {
+    throw new OvertimeError(409, 'Overtime request has already been decided');
+  }
+  const managerNote = input.managerNote?.trim();
+  if (managerNote && managerNote.length > 500) {
+    throw new OvertimeError(400, 'Note cannot exceed 500 characters');
+  }
+  const employee = await users().findOne({ userId: request.userId });
+  if (!employee) throw new OvertimeError(409, 'Overtime request has an invalid employee');
+  const now = new Date();
+  const updated = await overtimeRequests().findOneAndUpdate(
+    { _id: requestId, status: 'pending' },
+    {
+      $set: {
+        status: decision,
+        ...(managerNote ? { managerNote } : {}),
+        decidedByUserId: adminUserId,
+        decidedByRole: 'admin',
         decidedAt: now,
         updatedAt: now,
       },
@@ -134,6 +196,7 @@ function toView(request: OvertimeRequest & { _id: ObjectId }, employee: User) {
     status: request.status,
     createdAt: request.createdAt.toISOString(),
     decidedAt: request.decidedAt?.toISOString(),
+    decidedByRole: request.decidedByRole,
   };
 }
 

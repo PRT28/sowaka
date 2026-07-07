@@ -220,9 +220,10 @@ class CloseAwardPicker extends ManagerEvent {
 }
 
 class NominateAward extends ManagerEvent {
-  const NominateAward(this.awardKey, this.memberId);
+  const NominateAward(this.awardKey, this.memberId, this.reason);
   final String awardKey;
   final int memberId;
+  final String reason;
 }
 
 class OpenApplyLeave extends ManagerEvent {
@@ -456,24 +457,33 @@ class ManagerBloc {
           _emit(_state.copyWith(awardPickerKey: awardKey));
         case CloseAwardPicker():
           _emit(_state.copyWith(clearAwardPicker: true));
-        case NominateAward(:final awardKey, :final memberId):
+        case NominateAward(:final awardKey, :final memberId, :final reason):
           final data = _state.dashboard;
           if (data == null) return false;
           final member = data.recognitionCandidates
               .where((item) => item.id == memberId)
               .firstOrNull;
           if (member == null) return false;
-          await _service.nominateAward(awardKey, member);
+          await _service.nominateAward(awardKey, member, reason);
           final awards = data.awards.map((award) {
             return award.key == awardKey
-                ? award.copyWith(nomineeId: memberId)
+                ? award.copyWith(nomineeId: memberId, reason: reason)
                 : award;
           }).toList();
+          final historyEntry = Nomination(
+            period: '',
+            category: awardKey,
+            employeeName: member.name,
+            reason: reason,
+          );
           _emit(
             _state.copyWith(
-              dashboard: data.copyWith(awards: awards),
+              dashboard: data.copyWith(
+                awards: awards,
+                recognitionHistory: [historyEntry, ...data.recognitionHistory],
+              ),
               clearAwardPicker: true,
-              message: 'Nomination saved',
+              message: 'Nomination submitted',
             ),
           );
         case OpenApplyLeave():

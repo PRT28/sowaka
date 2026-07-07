@@ -19,6 +19,8 @@ export interface AuthUser {
   email: string;
   name: string;
   role: 'manager' | 'employee';
+  dashboardAccess?: boolean;
+  isLeadership?: boolean;
   company: string;
   profilePhotoUrl?: string;
   location?: string;

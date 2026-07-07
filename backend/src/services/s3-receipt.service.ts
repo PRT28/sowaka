@@ -1,9 +1,11 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
   type ServerSideEncryption,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 
@@ -37,6 +39,20 @@ export async function uploadReimbursementReceipt(userId: string, file: ReceiptFi
 export async function deleteReimbursementReceipt(objectKey: string) {
   validateConfiguration();
   await getClient().send(new DeleteObjectCommand({ Bucket: env.s3.bucket, Key: objectKey }));
+}
+
+/// Returns a short-lived presigned URL so the browser can view/download the
+/// stored receipt inline without exposing S3 credentials.
+export async function presignReceiptDownload(objectKey: string, fileName?: string) {
+  validateConfiguration();
+  const command = new GetObjectCommand({
+    Bucket: env.s3.bucket,
+    Key: objectKey,
+    ...(fileName
+      ? { ResponseContentDisposition: `inline; filename="${fileName.replace(/"/g, '')}"` }
+      : {}),
+  });
+  return getSignedUrl(getClient(), command, { expiresIn: env.s3.presignTtl });
 }
 
 function getClient() {

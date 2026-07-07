@@ -57,9 +57,31 @@ function Shell() {
   );
 }
 
+function AccessDenied() {
+  const { user, signOut } = useAuth();
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#F3EDE3', color: '#4A4034', textAlign: 'center', padding: 24 }}>
+      <div style={{ fontSize: 44, marginBottom: 12 }}>🔒</div>
+      <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>No dashboard access</h1>
+      <p style={{ maxWidth: 420, marginTop: 10, fontSize: 14.5, lineHeight: 1.5, color: '#8A7E6C' }}>
+        Your account{user?.email ? ` (${user.email})` : ''} isn’t authorized to use the HR dashboard.
+        Ask an administrator to grant you dashboard access.
+      </p>
+      <button
+        onClick={() => void signOut()}
+        style={{ marginTop: 22, padding: '10px 20px', borderRadius: 10, border: '1px solid #E2D8C8', background: '#fff', color: '#4A4034', fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}
+      >
+        Sign out
+      </button>
+    </div>
+  );
+}
+
 function Gate() {
   const { user } = useAuth();
   if (!user) return <LoginScreen />;
+  // Rule 4: the dashboard is only for select users granted dashboard access.
+  if (!user.dashboardAccess) return <AccessDenied />;
   return (
     <StoreProvider>
       <Shell />

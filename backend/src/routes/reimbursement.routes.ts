@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import {
   createReimbursement,
+  getReimbursementReceiptUrl,
   listMyReimbursements,
   listReimbursementInbox,
-  updateReimbursementDecision,
 } from '../controllers/reimbursement.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { uploadReimbursementReceipt } from '../middleware/reimbursement-upload.middleware';
@@ -13,4 +13,5 @@ reimbursementRouter.use(requireAuth);
 reimbursementRouter.post('/', uploadReimbursementReceipt, createReimbursement);
 reimbursementRouter.get('/mine', listMyReimbursements);
 reimbursementRouter.get('/inbox', listReimbursementInbox);
-reimbursementRouter.patch('/:claimId/decision', updateReimbursementDecision);
+reimbursementRouter.get('/:claimId/receipt-url', getReimbursementReceiptUrl);
+// Reimbursement decisions are made ONLY from the HR dashboard — see /admin routes.

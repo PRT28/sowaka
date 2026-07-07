@@ -3,6 +3,7 @@ export interface RecognitionNomination {
   employeeUserId: string;
   period: string;
   category: 'artist' | 'mentor' | 'culture' | 'rising';
+  reason?: string; // why the manager nominated this person
   createdAt: Date;
   updatedAt: Date;
 }

@@ -1,24 +1,27 @@
 import { useStore } from '../store';
 import { STAT } from '../theme';
 import type { ReqStatus } from '../theme';
-import { Avatar, Card, EmptyRow, Pill, SearchInput, SelectBox, StatusTabs, SummaryCard } from '../ui';
-import { IconCheck, IconDownload, IconEye, IconX } from '../icons';
+import type { Reimb } from '../seed';
+import { inDateRange } from '../adapters';
+import { downloadCsv } from '../export';
+import { Avatar, Card, DateRange, EmptyRow, Pill, SearchInput, SelectBox, StatusTabs, SummaryCard } from '../ui';
+import { IconCheck, IconDownload, IconEye, IconFile, IconX } from '../icons';
 
-const COLS = '1.7fr 1.1fr 1fr 1fr 1fr 1.3fr 1fr 1.1fr';
+const COLS = '1.5fr 1fr 1fr 1fr 1fr 1.5fr 1.2fr 1fr 1.1fr';
 
 export function Reimbursements() {
   const s = useStore();
-  const all = s.rbs;
-  const rtot = all.reduce((a, r) => a + r.amountN, 0);
-  const rpend = all.filter((r) => r.status === 'Pending').reduce((a, r) => a + r.amountN, 0);
+  const ranged = s.rbs.filter((r) => inDateRange(r.refISO, s.rbFrom, s.rbTo));
+  const rtot = ranged.reduce((a, r) => a + r.amountN, 0);
+  const rpend = ranged.filter((r) => r.status === 'Pending').reduce((a, r) => a + r.amountN, 0);
   const summary = {
-    count: all.length,
-    pending: all.filter((r) => r.status === 'Pending').length,
+    count: ranged.length,
+    pending: ranged.filter((r) => r.status === 'Pending').length,
     total: '₹' + rtot.toLocaleString('en-IN'),
     pendingAmt: '₹' + rpend.toLocaleString('en-IN'),
   };
 
-  let rows = all.slice();
+  let rows = ranged.slice();
   const q = s.rbSearch.trim().toLowerCase();
   if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q));
   if (s.rbStatus !== 'all') rows = rows.filter((r) => r.status === s.rbStatus);
@@ -28,6 +31,24 @@ export function Reimbursements() {
   else if (rs === 'oldest') rows.sort((a, b) => a.ord - b.ord);
   else if (rs === 'amount') rows.sort((a, b) => b.amountN - a.amountN);
   else if (rs === 'name') rows.sort((a, b) => a.name.localeCompare(b.name));
+  const exportRows = () =>
+    downloadCsv<Reimb>(
+      'reimbursements',
+      [
+        { header: 'Employee', value: (r) => r.name },
+        { header: 'Team', value: (r) => r.team },
+        { header: 'Type', value: (r) => r.type },
+        { header: 'Amount', value: (r) => r.amountN },
+        { header: 'Bill date', value: (r) => r.billDate },
+        { header: 'Applied', value: (r) => r.applyDate },
+        { header: 'Remark', value: (r) => r.eRemark },
+        { header: 'Manager', value: (r) => r.manager },
+        { header: 'Status', value: (r) => r.status },
+        { header: 'Decided by', value: (r) => (r.byAdmin ? 'admin' : 'manager') },
+        { header: 'Bill', value: (r) => r.bill },
+      ],
+      rows,
+    );
 
   return (
     <div style={{ animation: 'fade .3s ease both' }}>
@@ -60,9 +81,11 @@ export function Reimbursements() {
           <option value="amount">Highest amount</option>
           <option value="name">Name A–Z</option>
         </SelectBox>
+        <DateRange from={s.rbFrom} to={s.rbTo} onFrom={s.setRbFrom} onTo={s.setRbTo} />
         <button
-          onClick={() => s.flash(`Exported ${rows.length} claims to CSV`)}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+          onClick={exportRows}
+          disabled={rows.length === 0}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: rows.length ? 'pointer' : 'not-allowed', opacity: rows.length ? 1 : 0.5 }}
         >
           <IconDownload /> Export
         </button>
@@ -75,13 +98,13 @@ export function Reimbursements() {
           <div>AMOUNT</div>
           <div>BILL DATE</div>
           <div>APPLIED</div>
+          <div>REMARK</div>
           <div>MANAGER</div>
           <div>STATUS</div>
           <div style={{ textAlign: 'right' }}>ACTION</div>
         </div>
         {rows.map((r) => {
           const pending = r.status === 'Pending';
-          const declineOpen = s.rbDeclineId === r.id;
           return (
             <div
               key={r.id}
@@ -100,42 +123,30 @@ export function Reimbursements() {
               <div style={{ fontSize: 13.5, fontWeight: 800, letterSpacing: '-.2px' }}>{r.amount}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.billDate}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.applyDate}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 500, color: r.eRemark ? '#6E6457' : '#B4A896', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.eRemark || ''}>{r.eRemark || '—'}</div>
               <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.manager}</div>
               <div>
-                <Pill label={r.status} tone={STAT[r.status]} />
+                <Pill label={r.byAdmin ? `${r.status} · by admin` : r.status} tone={STAT[r.status]} />
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 7 }} onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => s.setRbBillId(r.id)} title="View bill" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <IconFile />
+                </button>
                 {pending ? (
                   <>
-                    <button onClick={() => s.rbOpenDecline(r.id)} title="Decline" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EBD9DE', background: '#FBF1F3', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => s.rbAsk(r.id, 'decline')} title="Decline" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EBD9DE', background: '#FBF1F3', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <IconX />
                     </button>
-                    <button onClick={() => s.rbApprove(r.id)} title="Approve" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #D7E2D2', background: '#EDF3E9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <button onClick={() => s.rbAsk(r.id, 'approve')} title="Approve" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #D7E2D2', background: '#EDF3E9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <IconCheck />
                     </button>
                   </>
                 ) : (
-                  <button onClick={() => s.setRbDrawerId(r.id)} title="View" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <button onClick={() => s.setRbDrawerId(r.id)} title="View details" style={{ width: 33, height: 33, borderRadius: 9, border: '1px solid #EDE3D4', background: '#FBF8F2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <IconEye />
                   </button>
                 )}
               </div>
-              {declineOpen && (
-                <div onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', right: 18, top: 54, zIndex: 40, width: 300, background: '#fff', border: '1px solid #EADFCF', borderRadius: 14, boxShadow: '0 16px 40px rgba(70,50,30,.18)', padding: 15, animation: 'pop .16s ease both' }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 3 }}>Decline {r.name.split(' ')[0]}'s claim</div>
-                  <div style={{ fontSize: 12, color: '#9B9082', fontWeight: 500, marginBottom: 10 }}>Add a remark so they know why.</div>
-                  <textarea
-                    value={s.rbDeclineText}
-                    onChange={(e) => s.setRbDeclineText(e.target.value)}
-                    placeholder="e.g. Out of budget — resubmit next quarter"
-                    style={{ width: '100%', height: 64, resize: 'none', border: '1px solid #EBE1D2', borderRadius: 10, padding: '9px 11px', fontSize: 12.5, outline: 'none', color: '#2A2420' }}
-                  />
-                  <div style={{ display: 'flex', gap: 8, marginTop: 11 }}>
-                    <button onClick={() => s.rbCancelDecline()} style={{ flex: 1, border: '1px solid #EBE1D2', background: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, color: '#6E6457', cursor: 'pointer' }}>Cancel</button>
-                    <button onClick={() => s.rbConfirmDecline(r.id)} style={{ flex: 1, border: 'none', background: '#A8475F', color: '#fff', borderRadius: 9, padding: 9, fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}>Decline</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}

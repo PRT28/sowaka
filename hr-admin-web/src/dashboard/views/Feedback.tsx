@@ -1,10 +1,12 @@
 import { useStore } from '../store';
-import { FSTAT } from '../theme';
-import type { FeedbackStatus, Pill as PillT } from '../theme';
-import { Avatar, Card, EmptyRow, Pill, SearchInput, StatusTabs } from '../ui';
+import type { Pill as PillT } from '../theme';
+import type { Feedback as FeedbackRow } from '../seed';
+import { inDateRange } from '../adapters';
+import { downloadCsv } from '../export';
+import { Avatar, Card, DateRange, EmptyRow, Pill, SearchInput } from '../ui';
 import { IconBell, IconCheck, IconDownload, IconStar } from '../icons';
 
-const COLS = '1.8fr 1.2fr .9fr 1.3fr 1fr 1.2fr';
+const COLS = '1.7fr 1.3fr .8fr 1.4fr 1.3fr 1fr';
 
 export function Feedback() {
   const s = useStore();
@@ -24,8 +26,23 @@ export function Feedback() {
   let rows = s.fbs.slice();
   const q = s.fbSearch.trim().toLowerCase();
   if (q) rows = rows.filter((r) => r.name.toLowerCase().includes(q) || r.parameter.toLowerCase().includes(q));
-  if (s.fbStatus !== 'all') rows = rows.filter((r) => r.status === s.fbStatus);
+  rows = rows.filter((r) => inDateRange(r.refISO, s.fbFrom, s.fbTo));
   rows.sort((a, b) => b.ord - a.ord);
+  const exportRows = () =>
+    downloadCsv<FeedbackRow>(
+      'feedback',
+      [
+        { header: 'Employee', value: (r) => r.name },
+        { header: 'Team', value: (r) => r.team },
+        { header: 'Parameter', value: (r) => r.parameter },
+        { header: 'Rating', value: (r) => r.rating.toFixed(1) },
+        { header: 'Rating description', value: (r) => r.ratingDesc },
+        { header: 'Note', value: (r) => r.note },
+        { header: 'Manager', value: (r) => r.manager },
+        { header: 'Date', value: (r) => r.date },
+      ],
+      rows,
+    );
 
   return (
     <div style={{ animation: 'fade .3s ease both' }}>
@@ -114,14 +131,11 @@ export function Feedback() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 14, flexWrap: 'wrap' }}>
         <SearchInput value={s.fbSearch} onChange={s.setFbSearch} placeholder="Search employee or parameter…" />
-        <StatusTabs<FeedbackStatus | 'all'>
-          options={['all', 'Submitted', 'Acknowledged', 'Pending', 'Draft']}
-          active={s.fbStatus}
-          onSelect={s.setFbStatus}
-        />
+        <DateRange from={s.fbFrom} to={s.fbTo} onFrom={s.setFbFrom} onTo={s.setFbTo} />
         <button
-          onClick={() => s.flash(`Exported ${rows.length} feedback rows to CSV`)}
-          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer' }}
+          onClick={exportRows}
+          disabled={rows.length === 0}
+          style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, background: '#2A2420', border: 'none', color: '#fff', borderRadius: 11, padding: '9px 15px', fontSize: 12.5, fontWeight: 700, cursor: rows.length ? 'pointer' : 'not-allowed', opacity: rows.length ? 1 : 0.5 }}
         >
           <IconDownload /> Export
         </button>
@@ -132,16 +146,16 @@ export function Feedback() {
           <div>EMPLOYEE</div>
           <div>PARAMETER</div>
           <div>RATING</div>
+          <div>DESCRIPTION</div>
           <div>MANAGER</div>
           <div>DATE</div>
-          <div>STATUS</div>
         </div>
         {rows.map((r) => (
           <div
             key={r.id}
             className="dc-row"
             onClick={() => s.setFbDrawerId(r.id)}
-            style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '14px 22px', borderBottom: '1px solid #F4EEE3', alignItems: 'center', cursor: 'pointer', transition: 'background .12s' }}
+            style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '14px 22px', borderBottom: '1px solid #F4EEE3', alignItems: 'center', cursor: 'pointer', transition: 'background .12s', background: r.isOverall ? '#FBF8F2' : 'transparent' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
               <Avatar name={r.name} />
@@ -150,16 +164,14 @@ export function Feedback() {
                 <div style={{ fontSize: 11.5, color: '#A89C8B', fontWeight: 500 }}>{r.team}</div>
               </div>
             </div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.parameter}</div>
+            <div style={{ fontSize: 13, fontWeight: r.isOverall ? 800 : 600, color: r.isOverall ? '#2A2420' : '#5C5448' }}>{r.parameter}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <IconStar />
-              <span style={{ fontSize: 13.5, fontWeight: 700 }}>{r.rating.toFixed(1)}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 700 }}>{r.rating > 0 ? r.rating.toFixed(1) : '—'}</span>
             </div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: '#6E6457', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={r.ratingDesc}>{r.ratingDesc}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.manager}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#5C5448' }}>{r.date}</div>
-            <div>
-              <Pill label={r.status} tone={FSTAT[r.status]} />
-            </div>
           </div>
         ))}
         {rows.length === 0 && <EmptyRow text="No feedback matches your filters." />}

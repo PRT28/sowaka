@@ -11,6 +11,7 @@ export interface OvertimeRequest {
   managerNote?: string;
   status: OvertimeStatus;
   decidedByUserId?: string;
+  decidedByRole?: 'manager' | 'admin'; // 'admin' = overridden from the HR dashboard
   decidedAt?: Date;
   createdAt: Date;
   updatedAt: Date;

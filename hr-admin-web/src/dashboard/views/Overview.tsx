@@ -115,7 +115,7 @@ export function Overview() {
                   {o.duration} · {o.otDate} ({o.day})
                 </div>
               </div>
-              <Pill label={o.status} tone={STAT[o.status]} fontSize={11} padding="3px 9px" />
+              <Pill label={o.byAdmin ? `${o.status} · by admin` : o.status} tone={STAT[o.status]} fontSize={11} padding="3px 9px" />
             </div>
           ))}
         </div>

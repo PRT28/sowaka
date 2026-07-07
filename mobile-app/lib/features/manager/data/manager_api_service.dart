@@ -46,6 +46,7 @@ class ManagerApiService {
     }).toList();
     final nominations = workspace['nominations'] as List<dynamic>? ?? const [];
     final nomineeByCategory = <String, int>{};
+    final reasonByCategory = <String, String>{};
     for (final value in nominations) {
       final nomination = value as Map<String, dynamic>;
       final userId = nomination['employeeUserId'] as String?;
@@ -55,7 +56,15 @@ class ManagerApiService {
       if (member != null) {
         nomineeByCategory[nomination['category'] as String] = member.id;
       }
+      final reason = nomination['reason'] as String?;
+      if (reason != null && reason.isNotEmpty) {
+        reasonByCategory[nomination['category'] as String] = reason;
+      }
     }
+    final recognitionHistory =
+        (workspace['recognitionHistory'] as List<dynamic>? ?? const [])
+            .map((value) => Nomination.fromJson(value as Map<String, dynamic>))
+            .toList();
 
     return ManagerDashboard(
       managerName: session.user.name,
@@ -73,9 +82,13 @@ class ManagerApiService {
       myLeaves: await myLeavesFuture,
       awards: _awardDefinitions
           .map(
-            (award) => award.copyWith(nomineeId: nomineeByCategory[award.key]),
+            (award) => award.copyWith(
+              nomineeId: nomineeByCategory[award.key],
+              reason: reasonByCategory[award.key],
+            ),
           )
           .toList(),
+      recognitionHistory: recognitionHistory,
       leaveBalance: LeaveBalance.fromJson(
         (await balanceFuture)['balance'] as Map<String, dynamic>,
       ),
@@ -142,11 +155,15 @@ class ManagerApiService {
     return LeaveRequest.fromJson(json['leave'] as Map<String, dynamic>);
   }
 
-  Future<void> nominateAward(String awardKey, TeamMember member) async {
+  Future<void> nominateAward(
+    String awardKey,
+    TeamMember member,
+    String reason,
+  ) async {
     await _request(
       'PUT',
       '/manager/recognition/$awardKey',
-      body: {'employeeUserId': member.userId},
+      body: {'employeeUserId': member.userId, 'reason': reason},
     );
   }
 
