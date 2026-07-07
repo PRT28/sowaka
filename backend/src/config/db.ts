@@ -13,6 +13,7 @@ import { User } from '../models/user.model';
 import { Leave } from '../models/leave.model';
 import { Company } from '../models/company.model';
 import { FeedbackRecord } from '../models/feedback.model';
+import { Holiday } from '../models/holiday.model';
 import { RecognitionNomination } from '../models/recognition.model';
 import { OvertimeRequest } from '../models/overtime.model';
 import { ReimbursementClaim } from '../models/reimbursement.model';
@@ -58,6 +59,10 @@ export function leaves(): Collection<Leave> {
 
 export function companies(): Collection<Company> {
   return getDb().collection<Company>('companies');
+}
+
+export function holidays(): Collection<Holiday> {
+  return getDb().collection<Holiday>('holidays');
 }
 
 export function feedbackRecords(): Collection<FeedbackRecord> {
@@ -126,6 +131,10 @@ async function ensureIndexes(database: Db): Promise<void> {
   await reimbursementCollection.createIndex({ managerUserId: 1, status: 1, createdAt: -1 });
 
   await database.collection<Company>('companies').createIndex({ id: 1 }, { unique: true });
+
+  const holidaysCollection = database.collection<Holiday>('holidays');
+  await holidaysCollection.createIndex({ org: 1, date: 1 }, { unique: true });
+  await holidaysCollection.createIndex({ org: 1, date: -1 });
 }
 
 export async function closeDb(): Promise<void> {

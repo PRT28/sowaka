@@ -91,6 +91,7 @@ class ManagerApiService {
       leaveBalance: LeaveBalance.fromJson(
         (await balanceFuture)['balance'] as Map<String, dynamic>,
       ),
+      holidays: const [],
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
       myReimbursements: await reimbursementsFuture,
@@ -282,17 +283,21 @@ class ManagerApiService {
       });
     if (body != null) request.body = jsonEncode(body);
 
-    return _send(request);
+    return _send(request, label: '$method $path');
   }
 
-  Future<Map<String, dynamic>> _send(http.BaseRequest request) async {
+  Future<Map<String, dynamic>> _send(
+    http.BaseRequest request, {
+    String? label,
+  }) async {
     final streamed = await _client.send(request);
     final response = await http.Response.fromStream(streamed);
     final json = response.body.isEmpty
         ? <String, dynamic>{}
         : jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ManagerApiException(json['message'] as String? ?? 'Request failed');
+      final message = json['message'] as String? ?? 'Request failed';
+      throw ManagerApiException(label == null ? message : '$label: $message');
     }
     return json;
   }

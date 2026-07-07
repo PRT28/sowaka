@@ -7,7 +7,7 @@ import '../data/manager_models.dart';
 
 enum ManagerLoadStatus { initial, loading, ready, failure }
 
-enum FeedbackFilter { all, overdue, soon }
+enum FeedbackFilter { all, pending, done }
 
 class ManagerState {
   const ManagerState({
@@ -292,6 +292,8 @@ class ManagerBloc {
       StreamController<ManagerState>.broadcast();
 
   ManagerState _state;
+  Timer? _leavePollingTimer;
+  bool _refreshingLeaves = false;
 
   ManagerState get state => _state;
 
@@ -300,6 +302,7 @@ class ManagerBloc {
   Future<bool> add(ManagerEvent event) => _handle(event);
 
   void dispose() {
+    _leavePollingTimer?.cancel();
     _controller.close();
   }
 
@@ -316,6 +319,7 @@ class ManagerBloc {
         case LoadManagerDashboard():
           _emit(_state.copyWith(status: ManagerLoadStatus.loading));
           final dashboard = await _service.fetchDashboard();
+          _startLeavePolling();
           _emit(
             _state.copyWith(
               status: ManagerLoadStatus.ready,
@@ -605,5 +609,37 @@ class ManagerBloc {
         message: message,
       ),
     );
+  }
+
+  void _startLeavePolling() {
+    _leavePollingTimer?.cancel();
+    _leavePollingTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      unawaited(_refreshLeavesSilently());
+    });
+  }
+
+  Future<void> _refreshLeavesSilently() async {
+    final data = _state.dashboard;
+    if (data == null || _refreshingLeaves) return;
+    _refreshingLeaves = true;
+    try {
+      final myLeavesFuture = _service.fetchMyLeaves();
+      final managerLeavesFuture = _state.canManage
+          ? _service.fetchManagerLeaves()
+          : Future<List<LeaveRequest>>.value(data.leaves);
+      final myLeaves = await myLeavesFuture;
+      final managerLeaves = await managerLeavesFuture;
+      final latest = _state.dashboard;
+      if (latest == null || _controller.isClosed) return;
+      _emit(
+        _state.copyWith(
+          dashboard: latest.copyWith(leaves: managerLeaves, myLeaves: myLeaves),
+        ),
+      );
+    } catch (_) {
+      // Polling is best-effort; foreground actions still surface errors.
+    } finally {
+      _refreshingLeaves = false;
+    }
   }
 }

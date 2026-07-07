@@ -31,13 +31,14 @@ enum _QuickPage {
   reimbursements,
   policies,
   policy,
-  balance,
   calendar,
   wizard,
   success,
 }
 
 enum _QuickFlow { leave, overtime, reimbursement }
+
+const int _maxLeaveApplyDays = 30;
 
 class QuickActionsScreen extends StatefulWidget {
   const QuickActionsScreen({
@@ -156,7 +157,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         _QuickPage.reimbursements => _reimbursementHub(),
         _QuickPage.policies => _policies(),
         _QuickPage.policy => _policyDetail(),
-        _QuickPage.balance => _balance(),
         _QuickPage.calendar => _calendar(),
         _QuickPage.wizard => _wizard(),
         _QuickPage.success => _success(),
@@ -249,11 +249,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
 
   Widget _leaveHub() {
     final requests = widget.dashboard.myLeaves;
-    final balance = widget.dashboard.leaveBalance;
-    final totalLeft =
-        balance.sick.remaining +
-        balance.casual.remaining +
-        balance.earned.remaining;
     final days = _leaveFrom == null
         ? 0
         : ((_leaveTo ?? _leaveFrom!).difference(_leaveFrom!).inDays + 1);
@@ -267,70 +262,14 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       title: 'Manage leave',
       onBack: _back,
       children: [
-        _PaperCard(
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  const Expanded(
-                    child: Text('Leave balance', style: _QText.cardTitle),
-                  ),
-                  Text(
-                    '$totalLeft days left · ${balance.year}',
-                    style: const TextStyle(
-                      color: _Q.terra,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: _BalanceTile(
-                      'Sick',
-                      balance.sick.remaining,
-                      balance.sick.total,
-                      _Q.live,
-                      compact: true,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _BalanceTile(
-                      'Casual',
-                      balance.casual.remaining,
-                      balance.casual.total,
-                      _Q.gold,
-                      compact: true,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _BalanceTile(
-                      'Earned',
-                      balance.earned.remaining,
-                      balance.earned.total,
-                      _Q.teal,
-                      compact: true,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
         const _SectionLabel('Apply for leave'),
         const SizedBox(height: 8),
         Text(
           _leaveFrom == null
-              ? 'Tap a start and end date on the calendar.'
+              ? 'Tap a start and end date. Weekends and holidays are blocked.'
               : _leaveTo == null
               ? 'Now tap the end date (or continue for a single day).'
-              : 'Dates selected — continue to apply.',
+              : 'Dates selected — apply leave.',
           style: _QText.subtitle,
         ),
         const SizedBox(height: 11),
@@ -340,6 +279,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               _MonthCalendar(
                 from: _leaveFrom,
                 to: _leaveTo,
+                selectableDayPredicate: _canSelectLeaveDay,
                 onPick: _pickLeaveDay,
               ),
               const Divider(height: 25, color: _Q.line),
@@ -417,7 +357,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
                       iconAlignment: IconAlignment.end,
                       icon: const Icon(Icons.arrow_forward_rounded, size: 17),
                       label: const Text(
-                        'Continue',
+                        'Apply leave',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
@@ -458,6 +398,13 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       } else if (day.isBefore(_leaveFrom!)) {
         _leaveFrom = day;
       } else {
+        final span = day.difference(_leaveFrom!).inDays + 1;
+        if (span > _maxLeaveApplyDays ||
+            _rangeHasBlockedLeaveDay(_leaveFrom!, day)) {
+          _leaveFrom = day;
+          _leaveTo = null;
+          return;
+        }
         _leaveTo = day;
       }
     });
@@ -467,40 +414,50 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     if (_leaveFrom == null) return;
     final from = _leaveFrom!;
     final to = _leaveTo ?? _leaveFrom!;
-    final result = await showModalBottomSheet<_LeaveSheetResult>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) =>
-          _LeaveApplySheet(dashboard: widget.dashboard, from: from, to: to),
-    );
-    if (result == null || !mounted) return;
-    final confirmed = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _LeaveConfirmationSheet(
-        dashboard: widget.dashboard,
-        from: from,
-        to: to,
-        result: result,
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    final sent = await widget.bloc.add(
-      SubmitLeaveApplication(
-        type: result.type,
-        startDate: from,
-        endDate: to,
-        reason: result.note,
-      ),
-    );
-    if (!mounted || !sent) return;
-    setState(() {
-      _flow = _QuickFlow.leave;
-      _page = _QuickPage.success;
-    });
-    widget.controller._navigationChanged();
+    _LeaveSheetResult? draft;
+    while (mounted) {
+      final result = await showModalBottomSheet<_LeaveSheetResult>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _LeaveApplySheet(
+          dashboard: widget.dashboard,
+          from: from,
+          to: to,
+          initial: draft,
+        ),
+      );
+      if (result == null || !mounted) return;
+      draft = result;
+      final confirmed = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (context) => _LeaveConfirmationSheet(
+          dashboard: widget.dashboard,
+          from: from,
+          to: to,
+          result: result,
+        ),
+      );
+      if (!mounted) return;
+      if (confirmed != true) continue;
+      final sent = await widget.bloc.add(
+        SubmitLeaveApplication(
+          type: result.type,
+          startDate: from,
+          endDate: to,
+          reason: result.note,
+        ),
+      );
+      if (!mounted || !sent) return;
+      setState(() {
+        _flow = _QuickFlow.leave;
+        _page = _QuickPage.success;
+      });
+      widget.controller._navigationChanged();
+      return;
+    }
   }
 
   Widget _overtimeHub() {
@@ -674,43 +631,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         Text(
           policy.body,
           style: const TextStyle(color: _Q.ink, fontSize: 15, height: 1.65),
-        ),
-      ],
-    );
-  }
-
-  Widget _balance() {
-    final balance = widget.dashboard.leaveBalance;
-    return _HubScaffold(
-      key: const ValueKey('balance'),
-      title: 'Leave balance',
-      onBack: _back,
-      children: [
-        Text('Your balance for ${balance.year}.', style: _QText.subtitle),
-        const SizedBox(height: 18),
-        _LargeBalance(
-          'Sick leave',
-          balance.sick.remaining,
-          balance.sick.total,
-          _Q.live,
-        ),
-        _LargeBalance(
-          'Casual leave',
-          balance.casual.remaining,
-          balance.casual.total,
-          _Q.gold,
-        ),
-        _LargeBalance(
-          'Earned leave',
-          balance.earned.remaining,
-          balance.earned.total,
-          _Q.teal,
-        ),
-        const SizedBox(height: 18),
-        _PrimaryAction(
-          icon: Icons.add_rounded,
-          label: 'Apply for leave',
-          onTap: () => _start(_QuickFlow.leave),
         ),
       ],
     );
@@ -945,6 +865,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         child: _MonthCalendar(
           from: _dateChosen ? _from : null,
           to: _dateChosen ? _to : null,
+          selectableDayPredicate: _canSelectLeaveDay,
           onPick: (day) => setState(() {
             if (!_dateChosen || !_sameDay(_from, _to)) {
               _from = day;
@@ -953,6 +874,13 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             } else if (day.isBefore(_from)) {
               _from = day;
             } else {
+              final span = day.difference(_from).inDays + 1;
+              if (span > _maxLeaveApplyDays ||
+                  _rangeHasBlockedLeaveDay(_from, day)) {
+                _from = day;
+                _to = day;
+                return;
+              }
               _to = day;
             }
           }),
@@ -1246,7 +1174,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
 
   List<_FlowStep> _stepsForCurrentFlow() {
     if (_flow != _QuickFlow.leave) return _flowSteps[_flow]!;
-    final balance = widget.dashboard.leaveBalance;
     final leaveSteps = _flowSteps[_QuickFlow.leave]!;
     return [
       _FlowStep(
@@ -1255,25 +1182,38 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
         question: leaveSteps.first.question,
         subtitle: leaveSteps.first.subtitle,
         options: [
-          _FlowOption(
-            'Sick',
-            Icons.thermostat_rounded,
-            '${balance.sick.remaining} of ${balance.sick.total} left',
-          ),
-          _FlowOption(
-            'Casual',
-            Icons.coffee_rounded,
-            '${balance.casual.remaining} of ${balance.casual.total} left',
-          ),
-          _FlowOption(
-            'Earned',
-            Icons.flight_takeoff_rounded,
-            '${balance.earned.remaining} of ${balance.earned.total} left',
-          ),
+          _FlowOption('Sick', Icons.thermostat_rounded),
+          _FlowOption('Casual', Icons.coffee_rounded),
+          _FlowOption('Earned', Icons.flight_takeoff_rounded),
         ],
       ),
       ...leaveSteps.skip(1),
     ];
+  }
+
+  bool _canSelectLeaveDay(DateTime day) {
+    final today = _dateOnly(DateTime.now());
+    return !day.isBefore(today) &&
+        day.weekday != DateTime.saturday &&
+        day.weekday != DateTime.sunday &&
+        !_isCompanyHoliday(day);
+  }
+
+  bool _rangeHasBlockedLeaveDay(DateTime from, DateTime to) {
+    for (
+      var day = from;
+      !day.isAfter(to);
+      day = day.add(const Duration(days: 1))
+    ) {
+      if (!_canSelectLeaveDay(day)) return true;
+    }
+    return false;
+  }
+
+  bool _isCompanyHoliday(DateTime day) {
+    return widget.dashboard.holidays.any(
+      (holiday) => _sameDay(holiday.date, day),
+    );
   }
 }
 
@@ -1581,32 +1521,6 @@ class _ActionCard extends StatelessWidget {
   }
 }
 
-class _PrimaryAction extends StatelessWidget {
-  const _PrimaryAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return FilledButton.icon(
-      style: FilledButton.styleFrom(
-        backgroundColor: _Q.terra,
-        padding: const EdgeInsets.symmetric(vertical: 15),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-      onPressed: onTap,
-      icon: Icon(icon, size: 20),
-      label: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-    );
-  }
-}
-
 class _RequestRow extends StatelessWidget {
   const _RequestRow(
     this.title,
@@ -1675,97 +1589,6 @@ class _RequestRow extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BalanceTile extends StatelessWidget {
-  const _BalanceTile(
-    this.label,
-    this.left,
-    this.total,
-    this.color, {
-    this.compact = false,
-  });
-
-  final String label;
-  final int left;
-  final int total;
-  final Color color;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.all(compact ? 8 : 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: compact ? null : Border.all(color: _Q.line),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: _QText.mini),
-          const SizedBox(height: 5),
-          RichText(
-            text: TextSpan(
-              style: TextStyle(
-                color: color,
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
-                fontFamily: 'Plus Jakarta Sans',
-              ),
-              text: '$left',
-              children: [
-                TextSpan(
-                  text: ' / $total',
-                  style: const TextStyle(color: _Q.inkFaint, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LargeBalance extends StatelessWidget {
-  const _LargeBalance(this.label, this.left, this.total, this.color);
-
-  final String label;
-  final int left;
-  final int total;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _PaperCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(child: Text(label, style: _QText.cardTitle)),
-                Text('$left of $total left', style: _QText.cardSubtitle),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(99),
-              child: LinearProgressIndicator(
-                value: left / total,
-                minHeight: 8,
-                color: color,
-                backgroundColor: color.withValues(alpha: .13),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2074,10 +1897,12 @@ class _LeaveApplySheet extends StatefulWidget {
     required this.dashboard,
     required this.from,
     required this.to,
+    this.initial,
   });
   final ManagerDashboard dashboard;
   final DateTime from;
   final DateTime to;
+  final _LeaveSheetResult? initial;
 
   @override
   State<_LeaveApplySheet> createState() => _LeaveApplySheetState();
@@ -2088,6 +1913,16 @@ class _LeaveApplySheetState extends State<_LeaveApplySheet> {
   final _note = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial;
+    if (initial != null) {
+      _type = '${initial.type} leave';
+      _note.text = initial.note;
+    }
+  }
+
+  @override
   void dispose() {
     _note.dispose();
     super.dispose();
@@ -2095,24 +1930,11 @@ class _LeaveApplySheetState extends State<_LeaveApplySheet> {
 
   @override
   Widget build(BuildContext context) {
-    final balance = widget.dashboard.leaveBalance;
     final days = widget.to.difference(widget.from).inDays + 1;
     final options = <_FlowOption>[
-      _FlowOption(
-        'Sick leave',
-        Icons.thermostat_rounded,
-        '${balance.sick.remaining} of ${balance.sick.total} left',
-      ),
-      _FlowOption(
-        'Casual leave',
-        Icons.coffee_rounded,
-        '${balance.casual.remaining} of ${balance.casual.total} left',
-      ),
-      _FlowOption(
-        'Earned leave',
-        Icons.flight_takeoff_rounded,
-        '${balance.earned.remaining} of ${balance.earned.total} left',
-      ),
+      _FlowOption('Sick leave', Icons.thermostat_rounded),
+      _FlowOption('Casual leave', Icons.coffee_rounded),
+      _FlowOption('Earned leave', Icons.flight_takeoff_rounded),
     ];
     final range = _sameDay(widget.from, widget.to)
         ? _short(widget.from)
@@ -2665,9 +2487,9 @@ const _flowSteps = <_QuickFlow, List<_FlowStep>>{
       question: 'What type of leave?',
       subtitle: 'Pick the category that fits.',
       options: [
-        _FlowOption('Sick', Icons.thermostat_rounded, '8 of 12 left'),
-        _FlowOption('Casual', Icons.coffee_rounded, '7 of 12 left'),
-        _FlowOption('Earned', Icons.flight_takeoff_rounded, '16 of 18 left'),
+        _FlowOption('Sick', Icons.thermostat_rounded),
+        _FlowOption('Casual', Icons.coffee_rounded),
+        _FlowOption('Earned', Icons.flight_takeoff_rounded),
       ],
     ),
     _FlowStep(
@@ -2919,6 +2741,9 @@ bool _sameDay(DateTime? a, DateTime? b) =>
     a.year == b.year &&
     a.month == b.month &&
     a.day == b.day;
+
+DateTime _dateOnly(DateTime value) =>
+    DateTime(value.year, value.month, value.day);
 
 String _rangeLabel(DateTime from, DateTime to) {
   final days = to.difference(from).inDays + 1;
