@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireHrAdmin } from '../middleware/admin.middleware';
+import { requireDashboardAccess } from '../middleware/admin.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
 import {
   clearEmployeeManager,
   getEmployeeManager,
@@ -9,7 +10,7 @@ import {
 
 export const reportingRouter = Router();
 
-reportingRouter.use(requireHrAdmin);
+reportingRouter.use(requireAuth, requireDashboardAccess);
 reportingRouter.get('/employees/:employeeUserId/manager', getEmployeeManager);
 reportingRouter.put('/employees/:employeeUserId/manager', setEmployeeManager);
 reportingRouter.delete('/employees/:employeeUserId/manager', clearEmployeeManager);

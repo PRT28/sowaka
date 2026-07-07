@@ -19,4 +19,4 @@ router.use('/leaves', leaveRouter);
 router.use('/manager', managerRouter);
 router.use('/overtime', overtimeRouter);
 router.use('/reimbursements', reimbursementRouter);
-router.use(reportingRouter);
+router.use('/admin/reporting', reportingRouter);
