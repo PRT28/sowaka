@@ -627,19 +627,13 @@ class ManagerBloc {
       final managerLeavesFuture = _state.canManage
           ? _service.fetchManagerLeaves()
           : Future<List<LeaveRequest>>.value(data.leaves);
-      final holidaysFuture = _service.fetchHolidays();
       final myLeaves = await myLeavesFuture;
       final managerLeaves = await managerLeavesFuture;
-      final holidays = await holidaysFuture;
       final latest = _state.dashboard;
       if (latest == null || _controller.isClosed) return;
       _emit(
         _state.copyWith(
-          dashboard: latest.copyWith(
-            leaves: managerLeaves,
-            myLeaves: myLeaves,
-            holidays: holidays,
-          ),
+          dashboard: latest.copyWith(leaves: managerLeaves, myLeaves: myLeaves),
         ),
       );
     } catch (_) {

@@ -24,7 +24,6 @@ class ManagerApiService {
     final myLeavesFuture = fetchMyLeaves();
     final managerLeavesFuture = fetchManagerLeaves();
     final balanceFuture = _request('GET', '/leaves/balance');
-    final holidaysFuture = fetchHolidays();
     final myOvertimeFuture = fetchMyOvertime();
     final overtimeFuture = fetchManagerOvertime();
     final reimbursementsFuture = fetchMyReimbursements();
@@ -92,7 +91,7 @@ class ManagerApiService {
       leaveBalance: LeaveBalance.fromJson(
         (await balanceFuture)['balance'] as Map<String, dynamic>,
       ),
-      holidays: await holidaysFuture,
+      holidays: const [],
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
       myReimbursements: await reimbursementsFuture,
@@ -107,14 +106,6 @@ class ManagerApiService {
   Future<List<LeaveRequest>> fetchManagerLeaves() async {
     final json = await _request('GET', '/leaves/inbox');
     return _parseLeaves(json);
-  }
-
-  Future<List<CompanyHoliday>> fetchHolidays() async {
-    final json = await _request('GET', '/holidays');
-    final values = json['holidays'] as List<dynamic>? ?? const [];
-    return values
-        .map((value) => CompanyHoliday.fromJson(value as Map<String, dynamic>))
-        .toList();
   }
 
   Future<void> saveFeedback({

@@ -155,6 +155,8 @@ class _ManagerScreenState extends State<ManagerScreen> {
           );
         }
 
+        final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
         return PopScope(
           canPop: !_hasBackTarget(state),
           onPopInvokedWithResult: (didPop, result) {
@@ -185,7 +187,8 @@ class _ManagerScreenState extends State<ManagerScreen> {
                               ),
                             ),
                           ),
-                          _BottomTabs(state: state, bloc: _bloc),
+                          if (!keyboardOpen)
+                            _BottomTabs(state: state, bloc: _bloc),
                         ],
                       ),
                       if (state.awardPickerKey != null)
@@ -1779,182 +1782,197 @@ class _RecordFeedbackState extends State<_RecordFeedback> {
             ),
             Expanded(
               child: _tab == 0
-                  ? Column(
-                      children: [
-                        if (keyboardOpen)
-                          const SizedBox(height: 10)
-                        else ...[
-                          const SizedBox(height: 17),
-                          const Text(
-                            'OVERALL SCORE',
-                            style: TextStyle(
-                              color: MColors.inkFaint,
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.35,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            width: 88,
-                            height: 88,
-                            decoration: BoxDecoration(
-                              color: overall == 0
-                                  ? const Color(0xFFD9CDBC)
-                                  : overallColor,
-                              shape: BoxShape.circle,
-                            ),
-                            alignment: Alignment.center,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  overall == 0
-                                      ? '—'
-                                      : overall.toStringAsFixed(1),
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 34,
-                                    height: .95,
-                                    fontWeight: FontWeight.w800,
-                                  ),
+                  ? member.status == FeedbackStatus.sent
+                        ? _FeedbackGivenSuccess(member: member)
+                        : Column(
+                            children: [
+                              const SizedBox(height: 17),
+                              const Text(
+                                'OVERALL SCORE',
+                                style: TextStyle(
+                                  color: MColors.inkFaint,
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 1.35,
                                 ),
-                                const Text(
-                                  'out of 5',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: 88,
+                                height: 88,
+                                decoration: BoxDecoration(
+                                  color: overall == 0
+                                      ? const Color(0xFFD9CDBC)
+                                      : overallColor,
+                                  shape: BoxShape.circle,
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-                        Expanded(
-                          child: state.recordParams.isEmpty
-                              ? const Center(
-                                  child: Text(
-                                    'No feedback parameters configured.',
-                                    style: TextStyle(color: MColors.inkSoft),
-                                  ),
-                                )
-                              : PageView.builder(
-                                  controller: _pageController,
-                                  itemCount: state.recordParams.length,
-                                  onPageChanged: (value) =>
-                                      setState(() => _page = value),
-                                  itemBuilder: (context, index) => Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 3,
+                                alignment: Alignment.center,
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      overall == 0
+                                          ? '—'
+                                          : overall.toStringAsFixed(1),
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 34,
+                                        height: .95,
+                                        fontWeight: FontWeight.w800,
+                                      ),
                                     ),
-                                    child: _ParamCard(
-                                      param: state.recordParams[index],
-                                      locked: locked,
-                                      listening:
-                                          _listeningField == 'param-$index',
-                                      onScore: (value) => bloc.add(
-                                        UpdateFeedbackScore(index, value),
+                                    const Text(
+                                      'out of 5',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
                                       ),
-                                      onNote: (value) => bloc.add(
-                                        UpdateFeedbackNote(index, value),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Expanded(
+                                child: state.recordParams.isEmpty
+                                    ? const Center(
+                                        child: Text(
+                                          'No feedback parameters configured.',
+                                          style: TextStyle(
+                                            color: MColors.inkSoft,
+                                          ),
+                                        ),
+                                      )
+                                    : PageView.builder(
+                                        controller: _pageController,
+                                        itemCount: state.recordParams.length,
+                                        onPageChanged: (value) =>
+                                            setState(() => _page = value),
+                                        itemBuilder: (context, index) => Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 5,
+                                            vertical: 3,
+                                          ),
+                                          child: _ParamCard(
+                                            key: ValueKey(
+                                              'feedback-param-${member.id}-${state.recordParams[index].name}',
+                                            ),
+                                            param: state.recordParams[index],
+                                            locked: locked,
+                                            listening:
+                                                _listeningField ==
+                                                'param-$index',
+                                            onScore: (value) => bloc.add(
+                                              UpdateFeedbackScore(index, value),
+                                            ),
+                                            onNote: (value) => bloc.add(
+                                              UpdateFeedbackNote(index, value),
+                                            ),
+                                            onVoice: () => _toggleSpeech(
+                                              field: 'param-$index',
+                                              currentText: state
+                                                  .recordParams[index]
+                                                  .note,
+                                              onText: (value) => bloc.add(
+                                                UpdateFeedbackNote(
+                                                  index,
+                                                  value,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
                                       ),
-                                      onVoice: () => _toggleSpeech(
-                                        field: 'param-$index',
-                                        currentText:
-                                            state.recordParams[index].note,
-                                        onText: (value) => bloc.add(
-                                          UpdateFeedbackNote(index, value),
+                              ),
+                              if (state.recordParams.length > 1)
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 8,
+                                    bottom: 8,
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: List.generate(
+                                      state.recordParams.length,
+                                      (index) => AnimatedContainer(
+                                        duration: const Duration(
+                                          milliseconds: 180,
+                                        ),
+                                        width: index == _page ? 18 : 6,
+                                        height: 6,
+                                        margin: const EdgeInsets.symmetric(
+                                          horizontal: 3,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: index == _page
+                                              ? MColors.terra
+                                              : const Color(0xFFD9CDBC),
+                                          borderRadius: BorderRadius.circular(
+                                            99,
+                                          ),
                                         ),
                                       ),
                                     ),
                                   ),
                                 ),
-                        ),
-                        if (state.recordParams.length > 1)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8, bottom: 8),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: List.generate(
-                                state.recordParams.length,
-                                (index) => AnimatedContainer(
-                                  duration: const Duration(milliseconds: 180),
-                                  width: index == _page ? 18 : 6,
-                                  height: 6,
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: index == _page
-                                        ? MColors.terra
-                                        : const Color(0xFFD9CDBC),
-                                    borderRadius: BorderRadius.circular(99),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (!locked && !keyboardOpen)
-                          SafeArea(
-                            top: false,
-                            bottom: false,
-                            child: Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                16,
-                                10,
-                                16,
-                                14,
-                              ),
-                              decoration: const BoxDecoration(
-                                color: Colors.white,
-                                border: Border(
-                                  top: BorderSide(color: MColors.line),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: ActionButton(
-                                      label: 'Save',
-                                      icon: Icons.save_outlined,
-                                      background: Colors.white,
-                                      foreground: MColors.ink,
-                                      border: MColors.line,
-                                      onTap: () =>
-                                          bloc.add(const SaveFeedback()),
+                              if (!locked && !keyboardOpen)
+                                SafeArea(
+                                  top: false,
+                                  bottom: false,
+                                  child: Container(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      10,
+                                      16,
+                                      14,
+                                    ),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.white,
+                                      border: Border(
+                                        top: BorderSide(color: MColors.line),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: ActionButton(
+                                            label: 'Save',
+                                            icon: Icons.save_outlined,
+                                            background: Colors.white,
+                                            foreground: MColors.ink,
+                                            border: MColors.line,
+                                            onTap: () =>
+                                                bloc.add(const SaveFeedback()),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          flex: 2,
+                                          child: ActionButton(
+                                            label:
+                                                'Send to ${member.name.split(' ').first}',
+                                            icon: Icons.send_rounded,
+                                            background: complete
+                                                ? MColors.terra
+                                                : MColors.line,
+                                            foreground: complete
+                                                ? Colors.white
+                                                : MColors.inkFaint,
+                                            onTap: complete
+                                                ? () => _confirmSend(
+                                                    context,
+                                                    bloc,
+                                                    member,
+                                                  )
+                                                : null,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    flex: 2,
-                                    child: ActionButton(
-                                      label:
-                                          'Send to ${member.name.split(' ').first}',
-                                      icon: Icons.send_rounded,
-                                      background: complete
-                                          ? MColors.terra
-                                          : MColors.line,
-                                      foreground: complete
-                                          ? Colors.white
-                                          : MColors.inkFaint,
-                                      onTap: complete
-                                          ? () => _confirmSend(
-                                              context,
-                                              bloc,
-                                              member,
-                                            )
-                                          : null,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
-                    )
+                                ),
+                            ],
+                          )
                   : _PastFeedbackTab(member: member),
             ),
           ],
@@ -2029,6 +2047,70 @@ class _FeedbackModeSwitch extends StatelessWidget {
       }),
     ),
   );
+}
+
+class _FeedbackGivenSuccess extends StatelessWidget {
+  const _FeedbackGivenSuccess({required this.member});
+
+  final TeamMember member;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(28, 24, 28, 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 116,
+              height: 116,
+              decoration: const BoxDecoration(
+                color: MColors.sageTint,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Container(
+                width: 74,
+                height: 74,
+                decoration: const BoxDecoration(
+                  color: MColors.sageDeep,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check_rounded,
+                  color: Colors.white,
+                  size: 42,
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'Feedback given successfully',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: MColors.ink,
+                fontSize: 24,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${member.name.split(' ').first} can now view this feedback in their growth history.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: MColors.inkSoft,
+                fontSize: 14,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _PastFeedbackTab extends StatelessWidget {
@@ -5521,8 +5603,11 @@ class _AwardCard extends StatelessWidget {
                         )
                       : Row(
                           children: [
-                            Icon(Icons.check_circle_rounded,
-                                size: 14, color: palette.$1),
+                            Icon(
+                              Icons.check_circle_rounded,
+                              size: 14,
+                              color: palette.$1,
+                            ),
                             const SizedBox(width: 5),
                             Text(
                               'Submitted',
@@ -5600,7 +5685,9 @@ class _AwardPickerState extends State<_AwardPicker> {
                   padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -5625,8 +5712,10 @@ class _AwardPickerState extends State<_AwardPicker> {
                               onTap: () => setState(() => _selected = null),
                               child: const Padding(
                                 padding: EdgeInsets.only(right: 10, top: 2),
-                                child: Icon(Icons.chevron_left_rounded,
-                                    color: MColors.ink),
+                                child: Icon(
+                                  Icons.chevron_left_rounded,
+                                  color: MColors.ink,
+                                ),
                               ),
                             ),
                           Expanded(
@@ -5647,7 +5736,9 @@ class _AwardPickerState extends State<_AwardPicker> {
                                       ? 'Choose one teammate for this recognition.'
                                       : 'Why are you nominating them?',
                                   style: const TextStyle(
-                                      color: MColors.inkSoft, fontSize: 13.5),
+                                    color: MColors.inkSoft,
+                                    fontSize: 13.5,
+                                  ),
                                 ),
                               ],
                             ),
@@ -5742,9 +5833,13 @@ class _AwardPickerState extends State<_AwardPicker> {
                         fontSize: 15,
                       ),
                     ),
-                    Text(member.team,
-                        style: const TextStyle(
-                            color: MColors.inkSoft, fontSize: 12.5)),
+                    Text(
+                      member.team,
+                      style: const TextStyle(
+                        color: MColors.inkSoft,
+                        fontSize: 12.5,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -5758,7 +5853,8 @@ class _AwardPickerState extends State<_AwardPicker> {
           maxLines: 3,
           onChanged: (_) => setState(() {}),
           decoration: InputDecoration(
-            hintText: 'What did ${member.name.split(' ').first} do to deserve this?',
+            hintText:
+                'What did ${member.name.split(' ').first} do to deserve this?',
             filled: true,
             fillColor: MColors.bg,
             border: OutlineInputBorder(
@@ -5774,8 +5870,8 @@ class _AwardPickerState extends State<_AwardPicker> {
             onPressed: _reason.text.trim().isEmpty
                 ? null
                 : () => widget.bloc.add(
-                      NominateAward(award.key, member.id, _reason.text.trim()),
-                    ),
+                    NominateAward(award.key, member.id, _reason.text.trim()),
+                  ),
             style: FilledButton.styleFrom(
               backgroundColor: MColors.ink,
               padding: const EdgeInsets.symmetric(vertical: 15),
@@ -5867,7 +5963,9 @@ void _showPastNominations(BuildContext context, List<Nomination> history) {
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 4),
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
                                 borderRadius: BorderRadius.circular(99),
@@ -6041,6 +6139,17 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final androidNavClearance =
+        Theme.of(context).platform == TargetPlatform.android ? 72.0 : 0.0;
+    final bottomClearance = math.max(
+      math.max(
+        math.max(mediaQuery.viewPadding.bottom, mediaQuery.padding.bottom),
+        mediaQuery.systemGestureInsets.bottom,
+      ),
+      androidNavClearance,
+    );
+
     return Positioned.fill(
       child: GestureDetector(
         onTap: () => widget.bloc.add(const CloseApplyLeave()),
@@ -6051,8 +6160,10 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
             onTap: () {},
             child: SafeArea(
               top: false,
+              bottom: false,
               child: Container(
                 width: double.infinity,
+                margin: EdgeInsets.only(bottom: bottomClearance),
                 padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
                 decoration: const BoxDecoration(
                   color: Colors.white,
@@ -6208,6 +6319,7 @@ class _ApplyLeaveSheetState extends State<_ApplyLeaveSheet> {
 
 class _ParamCard extends StatefulWidget {
   const _ParamCard({
+    super.key,
     required this.param,
     required this.locked,
     required this.listening,
@@ -6229,20 +6341,20 @@ class _ParamCard extends StatefulWidget {
 
 class _ParamCardState extends State<_ParamCard> {
   bool _help = false;
-  final GlobalKey _noteKey = GlobalKey();
+  final FocusNode _noteFocusNode = FocusNode();
   late final TextEditingController _noteController;
 
   @override
   void initState() {
     super.initState();
     _noteController = TextEditingController(text: widget.param.note);
+    _noteFocusNode.addListener(_commitNoteOnBlur);
   }
 
   @override
   void didUpdateWidget(covariant _ParamCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.param.name != oldWidget.param.name ||
-        widget.param.note != _noteController.text) {
+    if (!_noteFocusNode.hasFocus && widget.param.note != _noteController.text) {
       _noteController.value = TextEditingValue(
         text: widget.param.note,
         selection: TextSelection.collapsed(offset: widget.param.note.length),
@@ -6252,31 +6364,27 @@ class _ParamCardState extends State<_ParamCard> {
 
   @override
   void dispose() {
+    _commitNote();
+    _noteFocusNode.removeListener(_commitNoteOnBlur);
+    _noteFocusNode.dispose();
     _noteController.dispose();
     super.dispose();
   }
 
-  void _ensureNoteVisible() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      final noteContext = _noteKey.currentContext;
-      if (noteContext == null) return;
-      Scrollable.ensureVisible(
-        noteContext,
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        alignment: 0.72,
-      );
-    });
+  void _commitNoteOnBlur() {
+    if (!_noteFocusNode.hasFocus) _commitNote();
+  }
+
+  void _commitNote() {
+    final text = _noteController.text;
+    if (text != widget.param.note) widget.onNote(text);
   }
 
   @override
   Widget build(BuildContext context) {
     final color = scoreColor(widget.param.score <= 0 ? 1 : widget.param.score);
-    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return SingleChildScrollView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: EdgeInsets.only(bottom: keyboardOpen ? 96 : 0),
+      padding: const EdgeInsets.only(bottom: 16),
       child: PressableCard(
         padding: const EdgeInsets.all(17),
         child: Column(
@@ -6399,13 +6507,12 @@ class _ParamCardState extends State<_ParamCard> {
             ),
             const SizedBox(height: 12),
             TextFormField(
-              key: _noteKey,
               controller: _noteController,
+              focusNode: _noteFocusNode,
               enabled: !widget.locked,
               maxLines: 3,
-              scrollPadding: const EdgeInsets.only(bottom: 140),
-              onTap: _ensureNoteVisible,
-              onChanged: widget.onNote,
+              scrollPadding: const EdgeInsets.only(bottom: 24),
+              onChanged: (_) {},
               decoration: _fieldDecoration(
                 'Add a note — type or record by voice…',
                 suffix: widget.listening
