@@ -13,7 +13,8 @@ export type View =
   | 'exit'
   | 'payroll'
   | 'employees'
-  | 'orgchart';
+  | 'orgchart'
+  | 'settings';
 
 export type LeaveType = 'Sick' | 'Casual' | 'Earned' | 'WFH' | 'Unpaid';
 export type ReqStatus = 'Pending' | 'Approved' | 'Declined' | 'Paid';

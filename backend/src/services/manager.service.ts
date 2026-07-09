@@ -1,8 +1,10 @@
 import {
   feedbackRecords,
+  holidays,
   recognitionNominations,
   users,
 } from '../config/db';
+import { getCompanyConfig } from './company-settings.service';
 import {
   FeedbackParameter,
   FeedbackRecordStatus,
@@ -109,10 +111,26 @@ export async function getManagerWorkspace(managerUserId: string) {
     };
   });
 
+  // Company config for the overtime apply flow: which weekdays are week-offs,
+  // whether overtime is enabled for this user's department, and the org holidays.
+  const companyConfig = await getCompanyConfig(manager.org);
+  const overtimeEnabled = !companyConfig.overtimeDisabledDepartments.includes(
+    (manager.department ?? '').trim(),
+  );
+  const orgHolidays = manager.org
+    ? await holidays().find({ org: manager.org }).sort({ date: 1 }).toArray()
+    : [];
+
   return {
     period,
     approverName: approver?.name ?? 'Your manager',
     managerScore: Number((ownFeedback?.overallScore ?? 0).toFixed(1)),
+    weekoffDays: companyConfig.weekoffDays,
+    overtimeEnabled,
+    holidays: orgHolidays.map((holiday) => ({
+      date: holiday.date.toISOString().slice(0, 10),
+      name: holiday.name,
+    })),
     growthHistory: ownFeedbackHistory.map((record) => ({
       period: record.period,
       overallScore: Number(record.overallScore.toFixed(1)),

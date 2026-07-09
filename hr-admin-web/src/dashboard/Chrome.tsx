@@ -21,6 +21,7 @@ const PEOPLE_OPS: NavItem[] = [
 const ORGANISATION: NavItem[] = [
   { key: 'employees', label: 'Employees' },
   { key: 'orgchart', label: 'Org chart' },
+  { key: 'settings', label: 'Settings' },
 ];
 const SOON: Partial<Record<View, boolean>> = { attendance: true, onboarding: true, exit: true, payroll: true };
 
