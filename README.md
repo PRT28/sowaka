@@ -47,24 +47,13 @@ npm run backend:start
 ### Reporting relationships
 
 Reporting relationships use the stable `User.userId`. Each employee stores one
-`managerUserId`; a manager's employees are queried from that field. These
-administration endpoints require `X-Admin-Key: <HR_ADMIN_API_KEY>`.
+`managerUserId`; a manager's employees are queried from that field.
 
-```http
-PUT /employees/:employeeUserId/manager
-Content-Type: application/json
-
-{"managerUserId":"manager-user-id"}
-```
-
-```text
-GET    /employees/:employeeUserId/manager
-DELETE /employees/:employeeUserId/manager
-GET    /managers/:managerUserId/employees
-```
-
+Relationships are set up during seeding via `assignManager` in
+`src/services/reporting.service.ts` (see `src/scripts/seed-sysjini.ts`).
 Assignments reject self-management, reporting cycles, inactive users, missing
-users, and users from different organizations.
+users, and users from different organizations. There is no HTTP admin surface
+for this — it is handled in-process by the seed/setup scripts.
 
 ### Leave workflow
 

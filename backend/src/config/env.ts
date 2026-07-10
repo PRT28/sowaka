@@ -15,7 +15,6 @@ export const env = {
   otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES ?? 10),
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
   authSessionTtlDays: Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30),
-  hrAdminApiKey: process.env.HR_ADMIN_API_KEY ?? '',
   s3: {
     region: process.env.AWS_REGION ?? '',
     bucket: process.env.AWS_S3_BUCKET ?? '',
