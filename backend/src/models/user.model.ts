@@ -40,6 +40,7 @@ export interface User {
   lifecycleStatus: UserLifecycleStatus;
   profilePhotoUrl?: string;
   location?: string;
+  state?: string;
   designation?: string;
   department?: string;
   teamDescription?: string;

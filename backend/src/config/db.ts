@@ -17,6 +17,7 @@ import { Holiday } from '../models/holiday.model';
 import { RecognitionNomination } from '../models/recognition.model';
 import { OvertimeRequest } from '../models/overtime.model';
 import { ReimbursementClaim } from '../models/reimbursement.model';
+import { ConnectPost } from '../models/connect.model';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -81,6 +82,10 @@ export function reimbursementClaims(): Collection<ReimbursementClaim> {
   return getDb().collection<ReimbursementClaim>('reimbursement_claims');
 }
 
+export function connectPosts(): Collection<ConnectPost> {
+  return getDb().collection<ConnectPost>('connect_posts');
+}
+
 async function ensureIndexes(database: Db): Promise<void> {
   await database
     .collection<OtpChallenge>('otp_challenges')
@@ -133,8 +138,14 @@ async function ensureIndexes(database: Db): Promise<void> {
   await database.collection<Company>('companies').createIndex({ id: 1 }, { unique: true });
 
   const holidaysCollection = database.collection<Holiday>('holidays');
-  await holidaysCollection.createIndex({ org: 1, date: 1 }, { unique: true });
-  await holidaysCollection.createIndex({ org: 1, date: -1 });
+  await holidaysCollection.dropIndex('org_1_date_1').catch(() => undefined);
+  await holidaysCollection.createIndex({ org: 1, state: 1, date: 1 }, { unique: true });
+  await holidaysCollection.createIndex({ org: 1, state: 1, date: -1 });
+
+  const connectCollection = database.collection<ConnectPost>('connect_posts');
+  await connectCollection.createIndex({ id: 1 }, { unique: true });
+  await connectCollection.createIndex({ org: 1, publishedAt: -1 });
+  await connectCollection.createIndex({ org: 1, 'audience.department': 1, publishedAt: -1 });
 }
 
 export async function closeDb(): Promise<void> {

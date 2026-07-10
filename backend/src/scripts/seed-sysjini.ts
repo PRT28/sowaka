@@ -29,6 +29,7 @@ async function seed(): Promise<void> {
     designation: 'Software Engineer',
     department: 'Engineering',
     location: 'Bengaluru, India',
+    state: 'karnataka',
     joiningDate: new Date('2024-06-10T00:00:00.000Z'),
     birthday: new Date('1998-08-18T00:00:00.000Z'),
     teamDescription: 'Building reliable products and internal platforms for Sysjini.',
@@ -42,6 +43,7 @@ async function seed(): Promise<void> {
     designation: 'Engineering Manager',
     department: 'Engineering',
     location: 'Bengaluru, India',
+    state: 'karnataka',
     joiningDate: new Date('2022-01-17T00:00:00.000Z'),
     birthday: new Date('1992-03-12T00:00:00.000Z'),
     teamDescription: 'A product engineering team focused on dependable, human-centred software.',
@@ -62,6 +64,7 @@ async function seed(): Promise<void> {
           role: user.role,
           org: user.org,
           location: user.location,
+          state: user.state,
           designation: user.designation,
           department: user.department,
           teamDescription: user.teamDescription,
@@ -94,6 +97,7 @@ function createUser(input: {
   designation: string;
   department: string;
   location: string;
+  state: string;
   joiningDate: Date;
   birthday: Date;
   teamDescription: string;

@@ -41,6 +41,7 @@ export async function listAllEmployeesForAdmin(adminUserId: string) {
     email: e.email,
     department: e.department,
     designation: e.designation,
+    state: e.state,
     role: e.role ?? 'employee',
     isLeadership: e.isLeadership === true,
     dashboardAccess: e.dashboardAccess === true,

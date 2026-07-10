@@ -1,0 +1,53 @@
+part of '../../manager/presentation/manager_screen.dart';
+
+class _ConnectTab extends StatelessWidget {
+  const _ConnectTab({
+    super.key,
+    required this.session,
+    required this.profileAction,
+    required this.recognitionCandidates,
+  });
+
+  final AuthSession session;
+  final Widget profileAction;
+  final List<TeamMember> recognitionCandidates;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConnectFeedScreen(
+      key: const ValueKey('connect-feed-screen'),
+      session: session,
+      profileAction: profileAction,
+      recognitionCandidates: recognitionCandidates
+          .map(
+            (member) =>
+                ConnectTeammate(name: member.name, initials: member.initial),
+          )
+          .toList(),
+    );
+  }
+}
+
+class _ProfileAvatarAction extends StatelessWidget {
+  const _ProfileAvatarAction({
+    super.key,
+    required this.initial,
+    required this.onTap,
+  });
+
+  final String initial;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Open profile',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(99),
+        onTap: onTap,
+        child: AvatarBadge(initial: initial, index: 1, size: 42),
+      ),
+    );
+  }
+}

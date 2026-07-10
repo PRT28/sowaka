@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../bloc/manager_bloc.dart';
-import '../data/manager_models.dart';
+import '../../manager/bloc/manager_bloc.dart';
+import '../../manager/data/manager_models.dart';
 
 class QuickActionsController extends ChangeNotifier {
   _QuickActionsScreenState? _state;
@@ -924,7 +924,9 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   }
 
   bool get _hasBillPreview =>
-      _flow == _QuickFlow.reimbursement && _uploadBytes != null && _uploadName != null;
+      _flow == _QuickFlow.reimbursement &&
+      _uploadBytes != null &&
+      _uploadName != null;
 
   bool get _billIsImage {
     final n = (_uploadName ?? '').toLowerCase();
@@ -934,7 +936,9 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   /// Formats a review value — reimbursement amounts get an "Rs." prefix.
   String _reviewValue(String key, String value) {
     if (value.isEmpty) return '—';
-    if (key == 'Amount' && _flow == _QuickFlow.reimbursement) return 'Rs. $value';
+    if (key == 'Amount' && _flow == _QuickFlow.reimbursement) {
+      return 'Rs. $value';
+    }
     return value;
   }
 
@@ -955,12 +959,17 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             return Container(
               padding: const EdgeInsets.symmetric(vertical: 12),
               decoration: BoxDecoration(
-                border: isLast ? null : const Border(bottom: BorderSide(color: _Q.line)),
+                border: isLast
+                    ? null
+                    : const Border(bottom: BorderSide(color: _Q.line)),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(width: 88, child: Text(entry.$2.key, style: _QText.mini)),
+                  SizedBox(
+                    width: 88,
+                    child: Text(entry.$2.key, style: _QText.mini),
+                  ),
                   Expanded(
                     child: Text(
                       _reviewValue(entry.$2.key, entry.$2.value),
@@ -1010,10 +1019,16 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
                             fit: BoxFit.cover,
                           ),
                         ),
-                        _billCaption(Icons.zoom_out_map_rounded, 'Tap to view full bill'),
+                        _billCaption(
+                          Icons.zoom_out_map_rounded,
+                          'Tap to view full bill',
+                        ),
                       ],
                     )
-                  : _billCaption(Icons.picture_as_pdf_rounded, _uploadName ?? 'Bill.pdf'),
+                  : _billCaption(
+                      Icons.picture_as_pdf_rounded,
+                      _uploadName ?? 'Bill.pdf',
+                    ),
             ),
           ),
         ],
@@ -1032,7 +1047,11 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             child: Text(
               label,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: _Q.inkSoft, fontSize: 12.5, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                color: _Q.inkSoft,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -1052,7 +1071,10 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           child: Center(
             child: _billIsImage
                 ? InteractiveViewer(
-                    child: Image.memory(Uint8List.fromList(_uploadBytes!), fit: BoxFit.contain),
+                    child: Image.memory(
+                      Uint8List.fromList(_uploadBytes!),
+                      fit: BoxFit.contain,
+                    ),
                   )
                 : Container(
                     padding: const EdgeInsets.all(28),
@@ -1063,11 +1085,18 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.picture_as_pdf_rounded, size: 48, color: _Q.ink),
+                        const Icon(
+                          Icons.picture_as_pdf_rounded,
+                          size: 48,
+                          color: _Q.ink,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           _uploadName ?? 'Bill.pdf',
-                          style: const TextStyle(color: _Q.ink, fontWeight: FontWeight.w800),
+                          style: const TextStyle(
+                            color: _Q.ink,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                         const SizedBox(height: 6),
                         const Text(

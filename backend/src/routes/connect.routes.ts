@@ -1,0 +1,22 @@
+import { Router } from 'express';
+import {
+  actOnConnectPost,
+  commentOnConnectPost,
+  connectFeed,
+  createPost,
+  deletePost,
+  reactToConnectPost,
+  updatePost,
+} from '../controllers/connect.controller';
+import { uploadConnectPostMedia } from '../middleware/connect-media-upload.middleware';
+import { requireAuth } from '../middleware/auth.middleware';
+
+export const connectRouter = Router();
+connectRouter.use(requireAuth);
+connectRouter.get('/feed', connectFeed);
+connectRouter.post('/posts', uploadConnectPostMedia, createPost);
+connectRouter.post('/posts/:postId/reaction', reactToConnectPost);
+connectRouter.post('/posts/:postId/comments', commentOnConnectPost);
+connectRouter.post('/posts/:postId/actions', actOnConnectPost);
+connectRouter.patch('/posts/:postId', uploadConnectPostMedia, updatePost);
+connectRouter.delete('/posts/:postId', deletePost);
