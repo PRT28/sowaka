@@ -8,6 +8,7 @@ import { Overtime } from './views/Overtime';
 import { Feedback } from './views/Feedback';
 import { Reimbursements } from './views/Reimbursements';
 import { Employees } from './views/Employees';
+import { Settings } from './views/Settings';
 import { Placeholder } from './views/Placeholder';
 import { Drawers } from './drawers';
 import { Games } from './views/Games';
@@ -27,6 +28,8 @@ function CurrentView() {
       return <Reimbursements />;
     case 'employees':
       return <Employees />;
+    case 'settings':
+      return <Settings />;
     case 'games':
       return <Games />;
     default:

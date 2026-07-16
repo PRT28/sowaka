@@ -537,6 +537,8 @@ class ManagerDashboard {
     required this.overtime,
     required this.myOvertime,
     required this.myReimbursements,
+    this.weekoffDays = const [0],
+    this.overtimeEnabled = true,
   });
 
   final String managerName;
@@ -557,6 +559,10 @@ class ManagerDashboard {
   final List<OvertimeRequest> overtime;
   final List<OvertimeRequest> myOvertime;
   final List<ReimbursementClaim> myReimbursements;
+  // Company config (from /manager/workspace): week-off weekdays (0=Sun..6=Sat)
+  // and whether the overtime feature is enabled for this user's team.
+  final List<int> weekoffDays;
+  final bool overtimeEnabled;
 
   ManagerDashboard copyWith({
     List<TeamMember>? team,
@@ -591,6 +597,8 @@ class ManagerDashboard {
       overtime: overtime ?? this.overtime,
       myOvertime: myOvertime ?? this.myOvertime,
       myReimbursements: myReimbursements ?? this.myReimbursements,
+      weekoffDays: weekoffDays,
+      overtimeEnabled: overtimeEnabled,
     );
   }
 }

@@ -3,12 +3,14 @@ import {
   decideLeave,
   decideOvertime,
   decideReimbursement,
+  getCompanySettingsHandler,
   createEmployee,
   listEmployees,
   listFeedback,
   listLeaves,
   listOvertime,
   listReimbursements,
+  updateCompanySettingsHandler,
 } from '../controllers/admin.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDashboardAccess } from '../middleware/admin.middleware';
@@ -31,6 +33,10 @@ adminRouter.post('/games', adminCreateGame);
 adminRouter.patch('/games/:gameId', adminUpdateGame);
 adminRouter.delete('/games/:gameId', adminDeleteGame);
 adminRouter.post('/games/:gameId/publish', adminPublishGame);
+
+// Company settings: week-off days + per-team overtime toggle
+adminRouter.get('/company/settings', getCompanySettingsHandler);
+adminRouter.patch('/company/settings', updateCompanySettingsHandler);
 
 // Overrides / dashboard-only decisions (rules 3, 6, 7, 8)
 adminRouter.patch('/leaves/:leaveId/decision', decideLeave);

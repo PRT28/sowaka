@@ -14,6 +14,7 @@ export type View =
   | 'payroll'
   | 'employees'
   | 'orgchart'
+  | 'settings'
   | 'games';
 
 export type LeaveType = 'Sick' | 'Casual' | 'Earned' | 'WFH' | 'Unpaid';
