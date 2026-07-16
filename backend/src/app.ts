@@ -22,6 +22,8 @@ app.use(
   ),
 );
 
+console.log('CORS Origins:', env.corsOrigins)
+
 app.use(router);
 
 app.use(notFoundHandler);

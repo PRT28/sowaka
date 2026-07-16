@@ -11,6 +11,7 @@ import { logger } from '../utils/logger';
 import { AdminError } from '../services/admin.service';
 import { ConnectError } from '../services/connect.service';
 import { GameError } from '../services/game.service';
+import { NotificationError } from '../services/notification.service';
 
 export const notFoundHandler = (request: Request, response: Response) => {
   logger.warn('Route not found', requestLogContext(request, 404));
@@ -59,6 +60,7 @@ function getStatusCode(error: unknown): number {
     || error instanceof AdminError
     || error instanceof ConnectError
     || error instanceof GameError
+    || error instanceof NotificationError
   ) {
     return error.statusCode;
   }

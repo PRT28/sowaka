@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../../connect/data/connect_models.dart';
 import '../../connect/presentation/connect_feed_screen.dart';
 import '../../profile/presentation/profile_screen.dart';
 import '../../quick_actions/presentation/quick_actions_screen.dart';
+import '../../../services/notification_service.dart';
 import '../bloc/manager_bloc.dart';
 import '../data/manager_models.dart';
 
@@ -39,6 +41,7 @@ class _ManagerScreenState extends State<ManagerScreen> {
   late final ManagerBloc _bloc;
   late final QuickActionsController _quickActionsController;
   bool _profileOpen = false;
+  StreamSubscription<Map<String, dynamic>>? _notificationSubscription;
 
   @override
   void initState() {
@@ -47,6 +50,13 @@ class _ManagerScreenState extends State<ManagerScreen> {
       ..addListener(_refreshBackState);
     _bloc = ManagerBloc(session: widget.session)
       ..add(const LoadManagerDashboard());
+    AppNotificationService.instance.attachSession(widget.session);
+    _notificationSubscription = AppNotificationService.instance.opened.listen(
+      _handleNotificationDestination,
+    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppNotificationService.instance.consumePending();
+    });
   }
 
   @override
@@ -55,6 +65,7 @@ class _ManagerScreenState extends State<ManagerScreen> {
       ..removeListener(_refreshBackState)
       ..dispose();
     _bloc.dispose();
+    _notificationSubscription?.cancel();
     super.dispose();
   }
 
@@ -101,6 +112,36 @@ class _ManagerScreenState extends State<ManagerScreen> {
   void _openProfile() => setState(() => _profileOpen = true);
 
   void _closeProfile() => setState(() => _profileOpen = false);
+
+  void _handleNotificationDestination(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final destination = '${data['destination'] ?? ''}';
+    setState(() => _profileOpen = false);
+    switch (destination) {
+      case 'connect_post':
+      case 'connect_comment':
+      case 'employee_profile':
+        _bloc.add(const ChangeManagerTab(ManagerTab.connect));
+      case 'manage_leave':
+        _bloc
+          ..add(const ChangeManagerTab(ManagerTab.manage))
+          ..add(const OpenLeaveRequests());
+      case 'grow_feedback':
+      case 'feedback_session':
+        _bloc.add(const ChangeManagerTab(ManagerTab.grow));
+      case 'nomination_submission':
+      case 'nomination_review':
+      case 'attendance_team':
+      case 'attendance_report':
+      case 'team_leave_calendar':
+        _bloc.add(const ChangeManagerTab(ManagerTab.manage));
+      case 'profile_leaves':
+      case 'profile_recognition':
+        setState(() => _profileOpen = true);
+      default:
+        _bloc.add(const ChangeManagerTab(ManagerTab.connect));
+    }
+  }
 
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(

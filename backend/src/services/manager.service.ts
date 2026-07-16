@@ -8,6 +8,7 @@ import {
   FeedbackRecordStatus,
 } from '../models/feedback.model';
 import { RecognitionNomination } from '../models/recognition.model';
+import { notifyUsers, queueBatchedNotification } from './notification.service';
 
 const feedbackParameterNames = [
   'Ownership Mindset',
@@ -201,6 +202,14 @@ export async function upsertFeedback(
     },
     { upsert: true, returnDocument: 'after' },
   );
+  if (status === 'sent' && existing?.status !== 'sent') {
+    const manager = await users().findOne({ userId: managerUserId });
+    await notifyUsers([employeeUserId], {
+      scenario: 'feedback_shared', title: 'Feedback ready',
+      body: `${manager?.name ?? 'Your manager'} has shared your feedback for ${period}`,
+      data: { destination: 'grow_feedback', employeeUserId, period },
+    });
+  }
   return record;
 }
 
@@ -228,6 +237,18 @@ export async function nominateForRecognition(
     },
     { upsert: true },
   );
+  const [manager, employee] = await Promise.all([
+    users().findOne({ userId: managerUserId }), users().findOne({ userId: employeeUserId }),
+  ]);
+  const hrUsers = manager?.org
+    ? await users().find({ org: manager.org, dashboardAccess: true }).toArray()
+    : [];
+  for (const hr of hrUsers) {
+    await queueBatchedNotification(hr.userId, 'nomination_received', `${period}:${category}`,
+      manager?.name ?? 'A manager', category,
+      { destination: 'nomination_review', period, category, employeeUserId,
+        employeeName: employee?.name ?? 'Employee' });
+  }
   return { period, category, employeeUserId, reason };
 }
 

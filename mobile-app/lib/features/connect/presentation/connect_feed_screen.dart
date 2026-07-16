@@ -7,6 +7,7 @@ import '../../auth/data/auth_models.dart';
 import '../bloc/connect_bloc.dart';
 import '../data/connect_models.dart';
 import 'game_play_screen.dart';
+import '../../notifications/presentation/notification_inbox_screen.dart';
 
 class ConnectFeedScreen extends StatefulWidget {
   const ConnectFeedScreen({
@@ -64,7 +65,15 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
             bottom: false,
             child: Column(
               children: [
-                _ConnectHeader(profileAction: widget.profileAction),
+                _ConnectHeader(
+                  profileAction: widget.profileAction,
+                  onNotifications: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          NotificationInboxScreen(session: widget.session),
+                    ),
+                  ),
+                ),
                 Expanded(child: _buildBody(state)),
               ],
             ),
@@ -91,12 +100,17 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
       );
     }
     if (state.posts.isEmpty) {
-      return _ConnectEmptyState(
-        icon: Icons.forum_rounded,
-        title: 'No posts yet',
-        body: 'Company updates, kudos and events will appear here.',
-        actionLabel: 'Refresh',
-        onAction: _bloc.refresh,
+      return Stack(
+        children: [
+          _ConnectEmptyState(
+            icon: Icons.forum_rounded,
+            title: 'No posts yet',
+            body: 'Company updates, kudos and events will appear here.',
+            actionLabel: 'Refresh',
+            onAction: _bloc.refresh,
+          ),
+          _createPostButton(),
+        ],
       );
     }
     return Stack(
@@ -127,19 +141,23 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
             },
           ),
         ),
-        Positioned(
-          right: 20,
-          bottom: 28,
-          child: FloatingActionButton(
-            heroTag: 'connect-create-post',
-            elevation: 8,
-            backgroundColor: _ConnectColors.terra,
-            foregroundColor: Colors.white,
-            onPressed: _openPostTypePicker,
-            child: const Icon(Icons.add_rounded, size: 30),
-          ),
-        ),
+        _createPostButton(),
       ],
+    );
+  }
+
+  Widget _createPostButton() {
+    return Positioned(
+      right: 20,
+      bottom: 28,
+      child: FloatingActionButton(
+        heroTag: 'connect-create-post',
+        elevation: 8,
+        backgroundColor: _ConnectColors.terra,
+        foregroundColor: Colors.white,
+        onPressed: _openPostTypePicker,
+        child: const Icon(Icons.add_rounded, size: 30),
+      ),
     );
   }
 
@@ -207,9 +225,13 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
 }
 
 class _ConnectHeader extends StatelessWidget {
-  const _ConnectHeader({required this.profileAction});
+  const _ConnectHeader({
+    required this.profileAction,
+    required this.onNotifications,
+  });
 
   final Widget profileAction;
+  final VoidCallback onNotifications;
 
   @override
   Widget build(BuildContext context) {
@@ -242,6 +264,11 @@ class _ConnectHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: onNotifications,
+            tooltip: 'Notifications',
+            icon: const Icon(Icons.notifications_none_rounded),
           ),
           profileAction,
         ],

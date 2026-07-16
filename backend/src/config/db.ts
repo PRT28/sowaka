@@ -19,6 +19,7 @@ import { OvertimeRequest } from '../models/overtime.model';
 import { ReimbursementClaim } from '../models/reimbursement.model';
 import { ConnectPost } from '../models/connect.model';
 import { Game, GameScore } from '../models/game.model';
+import { AppNotification, DeviceToken } from '../models/notification.model';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -95,6 +96,14 @@ export function gameScores(): Collection<GameScore> {
   return getDb().collection<GameScore>('game_scores');
 }
 
+export function deviceTokens(): Collection<DeviceToken> {
+  return getDb().collection<DeviceToken>('device_tokens');
+}
+
+export function notifications(): Collection<AppNotification> {
+  return getDb().collection<AppNotification>('notifications');
+}
+
 async function ensureIndexes(database: Db): Promise<void> {
   await database
     .collection<OtpChallenge>('otp_challenges')
@@ -163,6 +172,14 @@ async function ensureIndexes(database: Db): Promise<void> {
   const scoresCollection = database.collection<GameScore>('game_scores');
   await scoresCollection.createIndex({ gameId: 1, userId: 1 }, { unique: true });
   await scoresCollection.createIndex({ gameId: 1, score: -1, achievedAt: 1 });
+
+  const tokensCollection = database.collection<DeviceToken>('device_tokens');
+  await tokensCollection.createIndex({ token: 1 }, { unique: true });
+  await tokensCollection.createIndex({ userId: 1 });
+  const notificationsCollection = database.collection<AppNotification>('notifications');
+  await notificationsCollection.createIndex({ id: 1 }, { unique: true });
+  await notificationsCollection.createIndex({ userId: 1, createdAt: -1 });
+  await notificationsCollection.createIndex({ userId: 1, readAt: 1, createdAt: -1 });
 }
 
 export async function closeDb(): Promise<void> {

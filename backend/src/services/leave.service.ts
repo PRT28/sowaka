@@ -3,6 +3,7 @@ import { holidays, leaves, users } from '../config/db';
 import { Leave, LeaveStatus } from '../models/leave.model';
 import { User } from '../models/user.model';
 import { orgUsers } from './admin-scope';
+import { notifyUsers } from './notification.service';
 
 const maxLeaveDays = 30;
 const leaveTypes = new Set<Leave['type']>(['sick', 'casual', 'earned']);
@@ -101,6 +102,16 @@ export async function applyForLeave(
     status: 'pending',
     createdAt,
     updatedAt: new Date(createdAt),
+  });
+
+  const hrUsers = await users().find({ org: employee.org, dashboardAccess: true }).toArray();
+  const dateLabel = startDate.toISOString().slice(0, 10) === endDate.toISOString().slice(0, 10)
+    ? startDate.toISOString().slice(0, 10)
+    : `${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)}`;
+  await notifyUsers([manager.userId, ...hrUsers.map((user) => user.userId)], {
+    scenario: 'leave_requested', title: 'Leave request',
+    body: `${employee.name} requested ${type} leave for ${dateLabel}: "${reason}"`,
+    data: { destination: 'manage_leave', leaveId: result.insertedId.toHexString() },
   });
 
   return toLeaveView(
@@ -246,6 +257,13 @@ export async function decideLeave(
     throw new LeaveError(409, 'Leave request has already been decided');
   }
 
+  const approver = await users().findOne({ userId: managerUserId });
+  await notifyUsers([employee.userId], {
+    scenario: 'leave_decided', title: `Leave ${decision}`,
+    body: `Your ${leave.type} leave for ${leave.startDate.toISOString().slice(0, 10)} was ${decision}`,
+    data: { destination: 'profile_leaves', leaveId: leaveIdInput, approverName: approver?.name ?? 'Manager' },
+  });
+
   return toLeaveView(updated, employee);
 }
 
@@ -310,6 +328,12 @@ export async function adminDecideLeave(
     { returnDocument: 'after' },
   );
   if (!updated) throw new LeaveError(409, 'Leave request has already been decided');
+  const approver = await users().findOne({ userId: adminUserId });
+  await notifyUsers([employee.userId], {
+    scenario: 'leave_decided', title: `Leave ${decision}`,
+    body: `Your ${leave.type} leave for ${leave.startDate.toISOString().slice(0, 10)} was ${decision}`,
+    data: { destination: 'profile_leaves', leaveId: leaveIdInput, approverName: approver?.name ?? 'HR' },
+  });
   return toLeaveView(updated, employee);
 }
 
@@ -322,10 +346,6 @@ function parseDateOnly(value: string, field: string): Date {
     throw new LeaveError(400, `${field} is not a valid date`);
   }
   return date;
-}
-
-function startOfUtcDay(date: Date): Date {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
 function inclusiveDays(startDate: Date, endDate: Date): number {

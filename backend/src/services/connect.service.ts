@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { connectPosts, gameScores, users } from '../config/db';
 import { ConnectPost, ConnectPostType } from '../models/connect.model';
 import { User } from '../models/user.model';
+import { notifyUsers, queueBatchedNotification } from './notification.service';
 import {
   deleteConnectMedia,
   presignConnectMedia,
@@ -46,6 +47,11 @@ export async function toggleConnectReaction(viewerUserId: string, postId: string
     ? { $pull: { likedBy: viewerUserId } }
     : { $addToSet: { likedBy: viewerUserId } };
   await connectPosts().updateOne({ id: postId }, update);
+  if (!liked && post.author.userId && post.author.userId !== viewerUserId) {
+    const viewer = await users().findOne({ userId: viewerUserId });
+    await queueBatchedNotification(post.author.userId, 'post_liked', post.id,
+      viewer?.name ?? 'Someone', '', { destination: 'connect_post', postId: post.id });
+  }
   const updated = await connectPosts().findOne({ id: postId });
   return viewPost(updated ?? post, viewerUserId);
 }
@@ -67,6 +73,13 @@ export async function addConnectComment(viewerUserId: string, postId: string, te
     { id: post.id },
     { $push: { comments: comment }, $set: { updatedAt: new Date() } },
   );
+  if (post.author.userId && post.author.userId !== viewerUserId) {
+    await notifyUsers([post.author.userId], {
+      scenario: 'post_commented', title: 'New comment',
+      body: `${viewer?.name ?? 'Someone'} commented on your post: "${text.slice(0, 60)}"`,
+      data: { destination: 'connect_comment', postId: post.id, commentId: comment.id },
+    });
+  }
   const updated = await connectPosts().findOne({ id: postId });
   return viewPost(updated ?? post, viewerUserId);
 }
@@ -88,6 +101,12 @@ export async function performConnectAction(
       { id: postId },
       { $set: { [`pollVotes.${viewerUserId}`]: optionId, updatedAt: now } },
     );
+    if (post.author.userId && post.author.userId !== viewerUserId) {
+      const viewer = await users().findOne({ userId: viewerUserId });
+      await queueBatchedNotification(post.author.userId, 'poll_voted', post.id,
+        viewer?.name ?? 'Someone', String(post.body.title ?? 'Poll'),
+        { destination: 'connect_post', postId: post.id });
+    }
   } else {
     const existing = post.actionBy?.[viewerUserId];
     if (existing) {

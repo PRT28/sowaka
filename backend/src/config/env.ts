@@ -2,19 +2,28 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const defaultCorsOrigins = [
+  'http://localhost:5173',
+  'http://localhost:8080',
+  'https://dikcsyvq9i7v1.cloudfront.net',
+];
+
+const configuredCorsOrigins = (process.env.CORS_ORIGIN ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
-  corsOrigins: (process.env.CORS_ORIGIN ?? 'http://localhost:5173,http://localhost:8080')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigins: [...new Set([...defaultCorsOrigins, ...configuredCorsOrigins])],
   mobileAppApiBaseUrl: process.env.MOBILE_APP_API_BASE_URL ?? 'http://10.0.2.2:4000',
   mongoUri: process.env.MONGODB_URI ?? '',
   mongoDbName: process.env.MONGODB_DB ?? 'sowaka',
   otpTtlMinutes: Number(process.env.OTP_TTL_MINUTES ?? 10),
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
   authSessionTtlDays: Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30),
+  firebaseServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '',
   s3: {
     region: process.env.AWS_REGION ?? '',
     bucket: process.env.AWS_S3_BUCKET ?? '',
