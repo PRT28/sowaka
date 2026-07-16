@@ -11,6 +11,7 @@ import { Employees } from './views/Employees';
 import { Settings } from './views/Settings';
 import { Placeholder } from './views/Placeholder';
 import { Drawers } from './drawers';
+import { Games } from './views/Games';
 
 function CurrentView() {
   const { view } = useStore();
@@ -29,6 +30,8 @@ function CurrentView() {
       return <Employees />;
     case 'settings':
       return <Settings />;
+    case 'games':
+      return <Games />;
     default:
       return <Placeholder />;
   }

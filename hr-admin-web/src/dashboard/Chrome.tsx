@@ -19,6 +19,7 @@ const PEOPLE_OPS: NavItem[] = [
   { key: 'payroll', label: 'Payroll' },
 ];
 const ORGANISATION: NavItem[] = [
+  { key: 'games', label: 'Games' },
   { key: 'employees', label: 'Employees' },
   { key: 'orgchart', label: 'Org chart' },
   { key: 'settings', label: 'Settings' },

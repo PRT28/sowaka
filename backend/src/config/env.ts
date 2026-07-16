@@ -24,6 +24,7 @@ export const env = {
     endpoint: process.env.AWS_S3_ENDPOINT ?? '',
     forcePathStyle: process.env.AWS_S3_FORCE_PATH_STYLE === 'true',
     receiptPrefix: process.env.AWS_S3_RECEIPT_PREFIX ?? 'reimbursements/receipts',
+    connectMediaPrefix: process.env.AWS_S3_CONNECT_MEDIA_PREFIX ?? 'connect/posts',
     serverSideEncryption: process.env.AWS_S3_SERVER_SIDE_ENCRYPTION ?? 'AES256',
     kmsKeyId: process.env.AWS_S3_KMS_KEY_ID ?? '',
     presignTtl: Number(process.env.AWS_S3_PRESIGN_TTL ?? 300),

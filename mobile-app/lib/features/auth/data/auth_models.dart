@@ -7,6 +7,7 @@ class AuthUser {
     required this.company,
     this.profilePhotoUrl,
     this.location,
+    this.state,
     this.designation,
     this.employmentType,
     this.department,
@@ -26,6 +27,7 @@ class AuthUser {
       company: json['company'] as String? ?? 'Sowaka',
       profilePhotoUrl: _optionalString(json['profilePhotoUrl']),
       location: _optionalString(json['location']),
+      state: _optionalString(json['state']),
       designation: _optionalString(json['designation']),
       employmentType: _optionalString(json['employmentType']),
       department: _optionalString(json['department']),
@@ -48,6 +50,7 @@ class AuthUser {
   final String company;
   final String? profilePhotoUrl;
   final String? location;
+  final String? state;
   final String? designation;
   final String? employmentType;
   final String? department;
@@ -65,6 +68,7 @@ class AuthUser {
     'company': company,
     'profilePhotoUrl': profilePhotoUrl,
     'location': location,
+    'state': state,
     'designation': designation,
     'employmentType': employmentType,
     'department': department,

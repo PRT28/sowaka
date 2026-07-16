@@ -8,6 +8,9 @@ import { ManagerError } from '../services/manager.service';
 import { OvertimeError } from '../services/overtime.service';
 import { ReimbursementError } from '../services/reimbursement.service';
 import { logger } from '../utils/logger';
+import { AdminError } from '../services/admin.service';
+import { ConnectError } from '../services/connect.service';
+import { GameError } from '../services/game.service';
 
 export const notFoundHandler = (request: Request, response: Response) => {
   logger.warn('Route not found', requestLogContext(request, 404));
@@ -53,6 +56,9 @@ function getStatusCode(error: unknown): number {
     error instanceof ManagerError ||
     error instanceof OvertimeError ||
     error instanceof ReimbursementError
+    || error instanceof AdminError
+    || error instanceof ConnectError
+    || error instanceof GameError
   ) {
     return error.statusCode;
   }

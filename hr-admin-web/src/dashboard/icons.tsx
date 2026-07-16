@@ -26,6 +26,12 @@ export const Logo = () => (
 
 // ---- Nav / section icons (18px, currentColor) ----
 export const navIcon: Record<View, ReactElement> = {
+  games: (
+    <svg {...base(18, 'currentColor')}>
+      <path d="M7 8h10a4 4 0 0 1 3.7 5.5l-1.2 3a2 2 0 0 1-3.2.8L14.8 16H9.2l-1.5 1.3a2 2 0 0 1-3.2-.8l-1.2-3A4 4 0 0 1 7 8z" />
+      <path d="M8 11v4M6 13h4M16 12h.01M18 14h.01" />
+    </svg>
+  ),
   overview: (
     <svg {...base(18, 'currentColor')}>
       <rect x="3" y="3" width="7" height="9" rx="1.5" />

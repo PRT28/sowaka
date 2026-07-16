@@ -81,7 +81,12 @@ export async function applyForLeave(
     throw new LeaveError(409, 'A pending or approved leave already overlaps these dates');
   }
 
-  const blockedDate = await firstBlockedDate(employee.org ?? 'default', startDate, endDate);
+  const blockedDate = await firstBlockedDate(
+    employee.org ?? 'default',
+    employee.state ?? employee.location ?? employee.branch ?? '',
+    startDate,
+    endDate,
+  );
   if (blockedDate) {
     throw new LeaveError(400, `Leave cannot include ${blockedDate.reason}: ${blockedDate.date}`);
   }
@@ -329,11 +334,12 @@ function inclusiveDays(startDate: Date, endDate: Date): number {
 
 async function firstBlockedDate(
   org: string,
+  state: string,
   startDate: Date,
   endDate: Date,
 ): Promise<{ date: string; reason: string } | null> {
   const holidayDocuments = await holidays()
-    .find({ org, date: { $gte: startDate, $lte: endDate } })
+    .find({ org, state: state.trim().toLowerCase(), date: { $gte: startDate, $lte: endDate } })
     .project<{ date: Date; name: string }>({ date: 1, name: 1 })
     .toArray();
   const holidayByDate = new Map(

@@ -152,6 +152,7 @@ async function toAuthUser(user: User): Promise<AuthUser> {
     company: company?.name ?? user.org ?? defaultCompany,
     profilePhotoUrl: user.profilePhotoUrl,
     location: user.location ?? user.branch,
+    state: user.state,
     designation: user.designation,
     employmentType: user.employeeType,
     department: user.department,

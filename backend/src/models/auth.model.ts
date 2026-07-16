@@ -24,6 +24,7 @@ export interface AuthUser {
   company: string;
   profilePhotoUrl?: string;
   location?: string;
+  state?: string;
   designation?: string;
   employmentType?: string;
   department?: string;

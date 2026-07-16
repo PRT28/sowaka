@@ -51,6 +51,9 @@ export function AddUserModal() {
           <Field label="Full name" span>
             <input value={f.name} onChange={(e) => s.setFormField('name', e.target.value)} placeholder="e.g. Priya Menon" style={inputStyle} />
           </Field>
+          <Field label="Work email" span>
+            <input type="email" value={f.email} onChange={(e) => s.setFormField('email', e.target.value)} placeholder="e.g. priya@company.com" style={inputStyle} />
+          </Field>
           <Field label="Role">
             <input value={f.role} onChange={(e) => s.setFormField('role', e.target.value)} placeholder="e.g. Product Manager" style={inputStyle} />
           </Field>
@@ -75,10 +78,10 @@ export function AddUserModal() {
             </select>
           </Field>
           <Field label="Date of birth">
-            <input value={f.dob} onChange={(e) => s.setFormField('dob', e.target.value)} placeholder="e.g. 5 Apr 1996" style={inputStyle} />
+            <input type="date" value={f.dob} onChange={(e) => s.setFormField('dob', e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Joining date">
-            <input value={f.joining} onChange={(e) => s.setFormField('joining', e.target.value)} placeholder="e.g. 1 Jul 2026" style={inputStyle} />
+            <input type="date" value={f.joining} onChange={(e) => s.setFormField('joining', e.target.value)} style={inputStyle} />
           </Field>
         </div>
 
