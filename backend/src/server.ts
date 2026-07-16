@@ -11,6 +11,9 @@ async function start(): Promise<void> {
   startConnectScheduler();
   startNotificationScheduler();
 
+
+logger.info('CORS Origins:', {cors: env.corsOrigins, path: 'https://dikcsyvq9i7v1.cloudfront.net'})
+
   const server = app.listen(env.port, () => {
     logger.info('API listening', {
       port: env.port,
