@@ -104,6 +104,7 @@ export type Emp = {
 
 export type UserForm = {
   name: string;
+  email: string;
   role: string;
   team: string;
   location: string;
@@ -126,6 +127,7 @@ export const DOCS = [
 
 export const emptyForm = (): UserForm => ({
   name: '',
+  email: '',
   role: '',
   team: 'Design',
   location: 'Bengaluru',

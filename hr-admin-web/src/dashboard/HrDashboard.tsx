@@ -10,6 +10,7 @@ import { Reimbursements } from './views/Reimbursements';
 import { Employees } from './views/Employees';
 import { Placeholder } from './views/Placeholder';
 import { Drawers } from './drawers';
+import { Games } from './views/Games';
 
 function CurrentView() {
   const { view } = useStore();
@@ -26,6 +27,8 @@ function CurrentView() {
       return <Reimbursements />;
     case 'employees':
       return <Employees />;
+    case 'games':
+      return <Games />;
     default:
       return <Placeholder />;
   }

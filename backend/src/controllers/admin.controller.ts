@@ -5,7 +5,7 @@ import {
   adminDecideReimbursement,
   listAllReimbursementsForAdmin,
 } from '../services/reimbursement.service';
-import { listAllEmployeesForAdmin, listAllFeedbackForAdmin } from '../services/admin.service';
+import { createEmployeeForAdmin, listAllEmployeesForAdmin, listAllFeedbackForAdmin } from '../services/admin.service';
 
 function adminUserId(req: Request): string {
   // requireAuth + requireDashboardAccess guarantee this is present.
@@ -59,6 +59,13 @@ export async function listEmployees(req: Request, res: Response, next: NextFunct
   } catch (error) {
     next(error);
   }
+}
+
+export async function createEmployee(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employee = await createEmployeeForAdmin(adminUserId(req), req.body ?? {});
+    res.status(201).json({ success: true, employee });
+  } catch (error) { next(error); }
 }
 
 // ---- Overrides (rules 6, 7, 8) ----

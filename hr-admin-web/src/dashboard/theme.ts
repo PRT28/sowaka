@@ -13,7 +13,8 @@ export type View =
   | 'exit'
   | 'payroll'
   | 'employees'
-  | 'orgchart';
+  | 'orgchart'
+  | 'games';
 
 export type LeaveType = 'Sick' | 'Casual' | 'Earned' | 'WFH' | 'Unpaid';
 export type ReqStatus = 'Pending' | 'Approved' | 'Declined' | 'Paid';
@@ -92,6 +93,7 @@ export const TITLES: Record<View, [string, string]> = {
   payroll: ['Payroll', 'People · Convrse Spaces'],
   employees: ['Employees', 'Organisation · Convrse Spaces'],
   orgchart: ['Org chart', 'Organisation · Convrse Spaces'],
+  games: ['Games', 'Connect · hosted games and leaderboards'],
 };
 
 export type Placeholder = {

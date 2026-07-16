@@ -2,10 +2,12 @@ import { app } from './app';
 import { env } from './config/env';
 import { closeDb, connectDb } from './config/db';
 import { logger } from './utils/logger';
+import { startConnectScheduler, stopConnectScheduler } from './services/connect-scheduler.service';
 
 async function start(): Promise<void> {
   await connectDb();
   logger.info('Connected to MongoDB', { database: env.mongoDbName });
+  startConnectScheduler();
 
   const server = app.listen(env.port, () => {
     logger.info('API listening', {
@@ -19,6 +21,7 @@ async function start(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info('Shutdown requested', { signal });
     server.close();
+    stopConnectScheduler();
     await closeDb();
     process.exit(0);
   };

@@ -1,5 +1,12 @@
-import { feedbackRecords } from '../config/db';
+import { randomUUID } from 'node:crypto';
+import { feedbackRecords, users } from '../config/db';
+import { User } from '../models/user.model';
 import { orgUsers } from './admin-scope';
+import { generateNewJoineePost } from './connect.service';
+
+export class AdminError extends Error {
+  constructor(public statusCode: number, message: string) { super(message); }
+}
 
 /** Org-wide list of every feedback record, for the HR dashboard (rule 5). */
 export async function listAllFeedbackForAdmin(adminUserId: string) {
@@ -49,4 +56,46 @@ export async function listAllEmployeesForAdmin(adminUserId: string) {
     managerName: e.managerUserId ? nameById.get(e.managerUserId) : undefined,
     lifecycleStatus: e.lifecycleStatus,
   }));
+}
+
+export interface CreateEmployeeInput {
+  name?: string; email?: string; designation?: string; department?: string;
+  location?: string; employeeType?: string; managerUserId?: string;
+  birthday?: string; joiningDate?: string;
+}
+
+export async function createEmployeeForAdmin(adminUserId: string, input: CreateEmployeeInput) {
+  const admin = await users().findOne({ userId: adminUserId });
+  if (!admin) throw new AdminError(404, 'Admin user not found');
+  const name = input.name?.trim();
+  const email = input.email?.trim().toLowerCase();
+  if (!name) throw new AdminError(400, 'Full name is required');
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new AdminError(400, 'A valid work email is required');
+  if (await users().findOne({ email })) throw new AdminError(409, 'An employee with this email already exists');
+  const parseDate = (value: string | undefined, label: string) => {
+    if (!value) return undefined;
+    const date = new Date(`${value}T00:00:00.000Z`);
+    if (Number.isNaN(date.valueOf())) throw new AdminError(400, `${label} is invalid`);
+    return date;
+  };
+  const employee: User = {
+    userId: randomUUID(), name, email, org: admin.org,
+    designation: input.designation?.trim() || undefined,
+    department: input.department?.trim() || undefined,
+    location: input.location?.trim() || undefined,
+    employeeType: input.employeeType === 'contract' || input.employeeType === 'intern' ? input.employeeType : 'full_time',
+    managerUserId: input.managerUserId || undefined,
+    birthday: parseDate(input.birthday, 'Date of birth'),
+    joiningDate: parseDate(input.joiningDate, 'Joining date') ?? new Date(),
+    lifecycleStatus: 'onboarding', onboardingStatus: 'pending', noticeStatus: 'none',
+    role: 'employee', dashboardAccess: false, isLeadership: false,
+    createdAt: Date.now(), updatedAt: new Date(),
+  };
+  const manager = employee.managerUserId
+    ? await users().findOne({ userId: employee.managerUserId, ...(admin.org ? { org: admin.org } : {}) })
+    : undefined;
+  await users().insertOne(employee);
+  try { await generateNewJoineePost(employee, manager ?? undefined); }
+  catch (error) { await users().deleteOne({ userId: employee.userId }); throw error; }
+  return employee;
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { connectPosts, users } from '../config/db';
+import { connectPosts, gameScores, users } from '../config/db';
 import { ConnectPost, ConnectPostType } from '../models/connect.model';
 import { User } from '../models/user.model';
 import {
@@ -257,6 +257,19 @@ async function viewPost(post: ConnectPost, viewerUserId: string) {
     );
     body.options = options;
     body.totalVotes = options.reduce((sum, option) => sum + option.votes, 0);
+  }
+  if (post.type === 'live_game' && typeof body.gameId === 'string') {
+    const leaders = await gameScores()
+      .find({ gameId: body.gameId, org: post.org })
+      .sort({ score: -1, achievedAt: 1 })
+      .limit(3)
+      .toArray();
+    body.leaderboard = leaders.map((entry, index) => ({
+      rank: index + 1,
+      userId: entry.userId,
+      playerName: entry.playerName,
+      score: entry.score,
+    }));
   }
   return {
     ...post,
@@ -806,4 +819,106 @@ function post(
 
 function defaultActionValue(type: ConnectPostType) {
   return type;
+}
+
+function systemAuthor() {
+  return {
+    name: 'Sowaka Connect',
+    initials: 'S',
+    designation: 'Auto · HRIS',
+    avatarColor: '#C98A2E',
+  };
+}
+
+function systemPost(
+  org: string,
+  type: 'birthday' | 'anniversary' | 'new_joinee',
+  systemKey: string,
+  body: Record<string, unknown>,
+  department?: string,
+): ConnectPost {
+  const now = new Date();
+  const meta = postMeta(type);
+  return {
+    id: randomUUID(),
+    systemKey,
+    org,
+    type,
+    ...meta,
+    author: systemAuthor(),
+    audience: { label: department ? 'Team' : 'Company', org, department },
+    body,
+    likedBy: [],
+    comments: [],
+    actionBy: {},
+    pollVotes: {},
+    publishedAt: now,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+async function insertSystemPost(post: ConnectPost) {
+  await connectPosts().updateOne(
+    { systemKey: post.systemKey },
+    { $setOnInsert: post },
+    { upsert: true },
+  );
+}
+
+/** Generate today's birthday and work-anniversary posts, safely repeatable. */
+export async function generateDailyLifecyclePosts(now = new Date()) {
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now);
+  const part = (type: string) => Number(dateParts.find((p) => p.type === type)?.value ?? 0);
+  const year = part('year');
+  const month = part('month');
+  const day = part('day');
+  const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const employees = await users().find({ lifecycleStatus: { $nin: ['offboarded', 'terminated'] } }).toArray();
+
+  for (const employee of employees) {
+    const org = orgForUser(employee);
+    if (employee.birthday && employee.birthday.getUTCMonth() + 1 === month && employee.birthday.getUTCDate() === day) {
+      await insertSystemPost(systemPost(org, 'birthday', `birthday:${employee.userId}:${dateKey}`, {
+        personName: employee.name,
+        personInitials: initialsFor(employee.name),
+        photoUrl: employee.profilePhotoUrl,
+        subtitle: `${employee.designation ?? employee.department ?? 'Teammate'} · turns a year wiser today`,
+        actionLabel: 'Send wishes',
+        actionDoneLabel: 'Wish sent!',
+      }));
+    }
+    if (employee.joiningDate && employee.joiningDate.getUTCMonth() + 1 === month && employee.joiningDate.getUTCDate() === day) {
+      const years = year - employee.joiningDate.getUTCFullYear();
+      if (years > 0) {
+        await insertSystemPost(systemPost(org, 'anniversary', `anniversary:${employee.userId}:${dateKey}`, {
+          personName: employee.name,
+          personInitials: initialsFor(employee.name),
+          photoUrl: employee.profilePhotoUrl,
+          years,
+          subtitle: `${employee.department ?? employee.designation ?? 'Team'} · joined ${employee.joiningDate.toLocaleDateString('en-IN', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`,
+        }));
+      }
+    }
+  }
+}
+
+/** Create the immediate welcome post emitted by the HR employee workflow. */
+export async function generateNewJoineePost(employee: User, manager?: User) {
+  const org = orgForUser(employee);
+  await insertSystemPost(systemPost(org, 'new_joinee', `new-joinee:${employee.userId}`, {
+    personName: employee.name,
+    personInitials: initialsFor(employee.name),
+    photoUrl: employee.profilePhotoUrl,
+    subtitle: `Joining as ${employee.designation ?? 'Teammate'} · Team ${employee.department ?? 'Company'}`,
+    facts: [employee.location ? `based in ${employee.location}` : '', employee.joiningDate ? `started ${employee.joiningDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}` : ''].filter(Boolean).join(' · '),
+    managerName: manager?.name,
+    managerInitials: manager ? initialsFor(manager.name) : undefined,
+    managerDesignation: manager?.designation ?? (manager ? 'Manager' : undefined),
+    managerNote: manager ? `Thrilled to have ${employee.name} join the team. Please say hi and help them feel at home!` : undefined,
+    actionLabel: 'Say hi',
+    actionDoneLabel: 'Said hi!',
+  }, employee.department));
 }

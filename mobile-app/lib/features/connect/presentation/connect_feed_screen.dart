@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import '../../auth/data/auth_models.dart';
 import '../bloc/connect_bloc.dart';
 import '../data/connect_models.dart';
+import 'game_play_screen.dart';
 
 class ConnectFeedScreen extends StatefulWidget {
   const ConnectFeedScreen({
@@ -119,6 +120,7 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
                 onComment: (text) => _bloc.addComment(post.id, text),
                 onAction: ({optionId}) =>
                     _bloc.performAction(post.id, optionId: optionId),
+                onPlayGame: () => _openGame(post),
                 onEdit: () => _openComposer(post.type, existing: post),
                 onDelete: () => _confirmDelete(post),
               );
@@ -184,6 +186,24 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
     );
     if (confirmed == true) await _bloc.deletePost(post.id);
   }
+
+  Future<void> _openGame(ConnectPost post) async {
+    final gameId = _bodyString(post, 'gameId');
+    final hostedUrl = _bodyString(post, 'hostedUrl');
+    if (gameId.isEmpty || hostedUrl.isEmpty) return;
+    await _bloc.performAction(post.id);
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => GamePlayScreen(
+          session: widget.session,
+          gameId: gameId,
+          title: _bodyString(post, 'title'),
+          hostedUrl: hostedUrl,
+        ),
+      ),
+    );
+  }
 }
 
 class _ConnectHeader extends StatelessWidget {
@@ -238,6 +258,7 @@ class _ConnectPostCard extends StatefulWidget {
     required this.onLike,
     required this.onComment,
     required this.onAction,
+    required this.onPlayGame,
     required this.onEdit,
     required this.onDelete,
   });
@@ -248,6 +269,7 @@ class _ConnectPostCard extends StatefulWidget {
   final VoidCallback onLike;
   final ValueChanged<String> onComment;
   final Future<void> Function({String? optionId}) onAction;
+  final VoidCallback onPlayGame;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -291,7 +313,11 @@ class _ConnectPostCardState extends State<_ConnectPostCard> {
               onEdit: widget.onEdit,
               onDelete: widget.onDelete,
             ),
-            _PostBody(post: post, onAction: widget.onAction),
+            _PostBody(
+              post: post,
+              onAction: widget.onAction,
+              onPlayGame: widget.onPlayGame,
+            ),
             _PostFooter(
               post: post,
               busy: widget.busy,
@@ -435,10 +461,15 @@ class _PostHeader extends StatelessWidget {
 enum _PostMenuAction { edit, delete }
 
 class _PostBody extends StatelessWidget {
-  const _PostBody({required this.post, required this.onAction});
+  const _PostBody({
+    required this.post,
+    required this.onAction,
+    required this.onPlayGame,
+  });
 
   final ConnectPost post;
   final Future<void> Function({String? optionId}) onAction;
+  final VoidCallback onPlayGame;
 
   @override
   Widget build(BuildContext context) {
@@ -453,7 +484,10 @@ class _PostBody extends StatelessWidget {
       ConnectPostType.award => _AwardBody(post: post),
       ConnectPostType.survey => _SurveyBody(post: post, onAction: onAction),
       ConnectPostType.event => _EventBody(post: post, onAction: onAction),
-      ConnectPostType.liveGame => _LiveGameBody(post: post, onAction: onAction),
+      ConnectPostType.liveGame => _LiveGameBody(
+        post: post,
+        onPlayGame: onPlayGame,
+      ),
       ConnectPostType.newJoinee => _NewJoineeBody(
         post: post,
         onAction: onAction,
@@ -644,6 +678,7 @@ class _BirthdayBody extends StatelessWidget {
             initials: _bodyString(post, 'personInitials'),
             color: _ConnectColors.gold,
             size: 78,
+            photoUrl: _bodyString(post, 'photoUrl'),
           ),
           const SizedBox(height: 12),
           Text(
@@ -698,6 +733,7 @@ class _AnniversaryBody extends StatelessWidget {
                 initials: _bodyString(post, 'personInitials'),
                 color: _ConnectColors.plum,
                 size: 64,
+                photoUrl: _bodyString(post, 'photoUrl'),
               ),
               Positioned(
                 right: -6,
@@ -980,24 +1016,75 @@ class _EventBody extends StatelessWidget {
 }
 
 class _LiveGameBody extends StatelessWidget {
-  const _LiveGameBody({required this.post, required this.onAction});
+  const _LiveGameBody({required this.post, required this.onPlayGame});
 
   final ConnectPost post;
-  final Future<void> Function({String? optionId}) onAction;
+  final VoidCallback onPlayGame;
 
   @override
   Widget build(BuildContext context) {
     final done = post.actionValue != null;
-    return _ActionPanel(
-      icon: Icons.sports_esports_rounded,
-      iconColor: _ConnectColors.live,
-      title: _bodyString(post, 'title'),
-      subtitle:
-          '${_bodyString(post, 'subtitle')}\n${_bodyString(post, 'startsAtLabel')}',
-      buttonLabel: done
-          ? _bodyString(post, 'actionDoneLabel')
-          : _bodyString(post, 'actionLabel'),
-      onTap: () => onAction(),
+    final leaders = (post.body['leaderboard'] as List<dynamic>? ?? const [])
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
+    return Column(
+      children: [
+        _ActionPanel(
+          icon: Icons.sports_esports_rounded,
+          iconColor: _ConnectColors.live,
+          title: _bodyString(post, 'title'),
+          subtitle:
+              '${_bodyString(post, 'subtitle')}\n${_bodyString(post, 'startsAtLabel')}',
+          buttonLabel: done
+              ? _bodyString(post, 'actionDoneLabel')
+              : _bodyString(post, 'actionLabel'),
+          onTap: onPlayGame,
+        ),
+        if (leaders.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: const EdgeInsets.all(13),
+            decoration: BoxDecoration(
+              color: _ConnectColors.sand,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '🏆 LEADERBOARD',
+                  style: TextStyle(
+                    color: _ConnectColors.inkSoft,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 7),
+                ...leaders.map(
+                  (entry) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 28,
+                          child: Text(
+                            '#${entry['rank']}',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                        Expanded(child: Text('${entry['playerName']}')),
+                        Text(
+                          '${entry['score']}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1025,6 +1112,7 @@ class _NewJoineeBody extends StatelessWidget {
               initials: _bodyString(post, 'personInitials'),
               color: _ConnectColors.rose,
               size: 70,
+              photoUrl: _bodyString(post, 'photoUrl'),
             ),
             const SizedBox(height: 12),
             Text(
@@ -1045,6 +1133,25 @@ class _NewJoineeBody extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
+            if (_bodyString(post, 'facts').isNotEmpty) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _ConnectColors.sand,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  '🤖  Auto-generated quick facts — ${_bodyString(post, 'facts')}',
+                  style: const TextStyle(
+                    color: _ConnectColors.inkSoft,
+                    fontSize: 12.5,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Text(
               _bodyString(post, 'managerNote'),
               textAlign: TextAlign.center,
@@ -1430,11 +1537,13 @@ class _InitialAvatar extends StatelessWidget {
     required this.initials,
     required this.color,
     required this.size,
+    this.photoUrl = '',
   });
 
   final String initials;
   final Color color;
   final double size;
+  final String photoUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -1442,15 +1551,31 @@ class _InitialAvatar extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      child: Text(
-        initials.isEmpty ? '?' : initials,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.36,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
+      child: photoUrl.isEmpty
+          ? Text(
+              initials.isEmpty ? '?' : initials,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: size * 0.36,
+                fontWeight: FontWeight.w800,
+              ),
+            )
+          : Image.network(
+              photoUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Text(
+                initials.isEmpty ? '?' : initials,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: size * 0.36,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
     );
   }
 }

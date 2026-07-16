@@ -18,6 +18,7 @@ import { RecognitionNomination } from '../models/recognition.model';
 import { OvertimeRequest } from '../models/overtime.model';
 import { ReimbursementClaim } from '../models/reimbursement.model';
 import { ConnectPost } from '../models/connect.model';
+import { Game, GameScore } from '../models/game.model';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -86,6 +87,14 @@ export function connectPosts(): Collection<ConnectPost> {
   return getDb().collection<ConnectPost>('connect_posts');
 }
 
+export function games(): Collection<Game> {
+  return getDb().collection<Game>('games');
+}
+
+export function gameScores(): Collection<GameScore> {
+  return getDb().collection<GameScore>('game_scores');
+}
+
 async function ensureIndexes(database: Db): Promise<void> {
   await database
     .collection<OtpChallenge>('otp_challenges')
@@ -144,8 +153,16 @@ async function ensureIndexes(database: Db): Promise<void> {
 
   const connectCollection = database.collection<ConnectPost>('connect_posts');
   await connectCollection.createIndex({ id: 1 }, { unique: true });
+  await connectCollection.createIndex({ systemKey: 1 }, { unique: true, sparse: true });
   await connectCollection.createIndex({ org: 1, publishedAt: -1 });
   await connectCollection.createIndex({ org: 1, 'audience.department': 1, publishedAt: -1 });
+
+  const gamesCollection = database.collection<Game>('games');
+  await gamesCollection.createIndex({ id: 1 }, { unique: true });
+  await gamesCollection.createIndex({ org: 1, active: 1, updatedAt: -1 });
+  const scoresCollection = database.collection<GameScore>('game_scores');
+  await scoresCollection.createIndex({ gameId: 1, userId: 1 }, { unique: true });
+  await scoresCollection.createIndex({ gameId: 1, score: -1, achievedAt: 1 });
 }
 
 export async function closeDb(): Promise<void> {

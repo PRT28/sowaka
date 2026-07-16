@@ -37,6 +37,8 @@ export interface ConnectComment {
 
 export interface ConnectPost {
   id: string;
+  /** Stable idempotency key for lifecycle-generated posts. */
+  systemKey?: string;
   org: string;
   type: ConnectPostType;
   tag: string;

@@ -154,5 +154,29 @@ export type EmployeeDTO = {
 export const getAllEmployees = () =>
   api<{ employees: EmployeeDTO[] }>('/admin/employees').then((r) => r.employees);
 
+export type CreateEmployeeInput = {
+  name: string; email: string; designation?: string; department?: string;
+  location?: string; employeeType?: string; managerUserId?: string;
+  birthday?: string; joiningDate?: string;
+};
+
+export const createEmployee = (input: CreateEmployeeInput) =>
+  api<{ employee: EmployeeDTO }>('/admin/employees', { method: 'POST', body: input })
+    .then((r) => r.employee);
+
+export type LeaderboardEntryDTO = { rank: number; userId: string; playerName: string; score: number; achievedAt: string };
+export type GameDTO = {
+  id: string; name: string; description: string; hostedUrl: string;
+  technology: 'vanilla_js' | 'react_js'; accentColor: string; instructions?: string;
+  active: boolean; leaderboard?: LeaderboardEntryDTO[];
+};
+export type GameInput = Omit<GameDTO, 'id' | 'leaderboard'>;
+
+export const getGames = () => api<{ games: GameDTO[] }>('/admin/games').then((r) => r.games);
+export const createGame = (input: GameInput) => api<{ game: GameDTO }>('/admin/games', { method: 'POST', body: input }).then((r) => r.game);
+export const updateGame = (id: string, input: GameInput) => api<{ game: GameDTO }>(`/admin/games/${id}`, { method: 'PATCH', body: input }).then((r) => r.game);
+export const deleteGame = (id: string) => api(`/admin/games/${id}`, { method: 'DELETE' });
+export const publishGame = (id: string) => api(`/admin/games/${id}/publish`, { method: 'POST' });
+
 // ---- Manager workspace (the dashboard user's own feedback-giving context) ----
 export const getWorkspace = () => api<WorkspaceDTO>('/manager/workspace');

@@ -10,6 +10,7 @@ import {
   decideLeave,
   decideOvertime,
   decideReimb,
+  createEmployee,
   getAllEmployees,
   getAllFeedback,
   getLeaveInbox,
@@ -367,31 +368,28 @@ function useProvideStore() {
     }
   };
 
-  // ---- employees (Add user is client-side; no create-employee endpoint yet) ----
+  // ---- employees ----
   const setFormField = (k: keyof UserForm, v: string) => setForm((s) => ({ ...s, [k]: v }));
-  const saveUser = () => {
+  const saveUser = async () => {
     const f = form;
     if (!f.name.trim()) {
       flash('Please enter a name');
       return;
     }
-    const emp: Emp = {
-      id: `local-${emps.length + 1}`,
-      name: f.name.trim(),
-      role: f.role.trim() || '—',
-      team: f.team,
-      location: f.location,
-      empType: f.empType,
-      manager: f.manager,
-      managerId: user?.id ?? '—',
-      dob: f.dob.trim() || '—',
-      joining: f.joining.trim() || '—',
-      docs: 0,
-    };
-    setEmps((s) => [emp, ...s]);
-    setAddOpen(false);
-    setForm(emptyForm());
-    flash(`${emp.name} added (local only — not yet saved to server)`);
+    if (!f.email.trim()) { flash('Please enter a work email'); return; }
+    try {
+      const manager = emps.find((employee) => employee.name === f.manager);
+      await createEmployee({
+        name: f.name.trim(), email: f.email.trim(), designation: f.role.trim() || undefined,
+        department: f.team, location: f.location,
+        employeeType: f.empType === 'Contract' ? 'contract' : f.empType === 'Intern' ? 'intern' : 'full_time',
+        managerUserId: manager?.id, birthday: f.dob || undefined, joiningDate: f.joining || undefined,
+      });
+      const refreshed = await getAllEmployees();
+      setEmps(adaptEmployees(refreshed));
+      setAddOpen(false); setForm(emptyForm());
+      flash(`${f.name.trim()} added and welcomed in Connect`);
+    } catch (e) { handleError(e); }
   };
 
   // overview cross-navigation

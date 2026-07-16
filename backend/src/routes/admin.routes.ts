@@ -3,6 +3,7 @@ import {
   decideLeave,
   decideOvertime,
   decideReimbursement,
+  createEmployee,
   listEmployees,
   listFeedback,
   listLeaves,
@@ -11,6 +12,7 @@ import {
 } from '../controllers/admin.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDashboardAccess } from '../middleware/admin.middleware';
+import { adminCreateGame, adminDeleteGame, adminListGames, adminPublishGame, adminUpdateGame } from '../controllers/game.controller';
 
 // HR dashboard surface: org-wide reads + request overrides. Every route requires
 // an authenticated user (requireAuth) who additionally has dashboardAccess.
@@ -23,6 +25,12 @@ adminRouter.get('/overtime', listOvertime);
 adminRouter.get('/reimbursements', listReimbursements);
 adminRouter.get('/feedback', listFeedback);
 adminRouter.get('/employees', listEmployees);
+adminRouter.post('/employees', createEmployee);
+adminRouter.get('/games', adminListGames);
+adminRouter.post('/games', adminCreateGame);
+adminRouter.patch('/games/:gameId', adminUpdateGame);
+adminRouter.delete('/games/:gameId', adminDeleteGame);
+adminRouter.post('/games/:gameId/publish', adminPublishGame);
 
 // Overrides / dashboard-only decisions (rules 3, 6, 7, 8)
 adminRouter.patch('/leaves/:leaveId/decision', decideLeave);
