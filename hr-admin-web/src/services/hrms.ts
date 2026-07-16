@@ -110,6 +110,24 @@ export const decideReimb = (
     body: { decision, ...(managerNote ? { managerNote } : {}) },
   }).then((r) => r.claim);
 
+// ---- Company settings (week-off days + per-team overtime) ----
+export type CompanySettings = {
+  weekoffDays: number[]; // 0 = Sunday .. 6 = Saturday
+  overtimeDisabledDepartments: string[];
+  departments: string[]; // all departments in the org, for building toggles
+};
+
+export const getCompanySettings = () =>
+  api<{ settings: CompanySettings }>('/admin/company/settings').then((r) => r.settings);
+
+export const updateCompanySettings = (
+  patch: Partial<Pick<CompanySettings, 'weekoffDays' | 'overtimeDisabledDepartments'>>,
+) =>
+  api<{ settings: CompanySettings }>('/admin/company/settings', {
+    method: 'PATCH',
+    body: patch,
+  }).then((r) => r.settings);
+
 // Presigned URL to view the uploaded bill for a claim.
 export const getReimbReceiptUrl = (id: string) =>
   api<{ receipt: { url: string; receiptName: string } }>(`/reimbursements/${id}/receipt-url`).then(

@@ -3,6 +3,7 @@ import { overtimeRequests, users } from '../config/db';
 import { OvertimeRequest, OvertimeStatus } from '../models/overtime.model';
 import { User } from '../models/user.model';
 import { orgUsers } from './admin-scope';
+import { getCompanyConfig, getOrgHolidayDates, isWeekoffDay } from './company-settings.service';
 
 const decisions = new Set<OvertimeStatus>(['approved', 'declined']);
 
@@ -19,6 +20,24 @@ export async function createOvertimeRequest(
   if (duration !== 'half_day' && duration !== 'full_day') {
     throw new OvertimeError(400, 'Duration must be half_day or full_day');
   }
+
+  // Team gate + full-day eligibility. Full-day overtime is only allowed on a
+  // week-off or a company holiday; half-day may be logged for any past day.
+  const companyConfig = await getCompanyConfig(employee.org);
+  if (companyConfig.overtimeDisabledDepartments.includes((employee.department ?? '').trim())) {
+    throw new OvertimeError(403, 'Overtime is not enabled for your team');
+  }
+  if (duration === 'full_day') {
+    const holidayDates = await getOrgHolidayDates(employee.org);
+    const isHoliday = holidayDates.has(workDate.toISOString().slice(0, 10));
+    if (!isHoliday && !isWeekoffDay(workDate, companyConfig.weekoffDays)) {
+      throw new OvertimeError(
+        400,
+        'Full-day overtime can only be applied on a week-off or holiday',
+      );
+    }
+  }
+
   const project = input.project.trim();
   if (project.length < 2 || project.length > 120) {
     throw new OvertimeError(400, 'Project must be between 2 and 120 characters');

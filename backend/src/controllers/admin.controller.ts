@@ -6,6 +6,7 @@ import {
   listAllReimbursementsForAdmin,
 } from '../services/reimbursement.service';
 import { createEmployeeForAdmin, listAllEmployeesForAdmin, listAllFeedbackForAdmin } from '../services/admin.service';
+import { getCompanySettings, updateCompanySettings } from '../services/company-settings.service';
 
 function adminUserId(req: Request): string {
   // requireAuth + requireDashboardAccess guarantee this is present.
@@ -56,6 +57,27 @@ export async function listEmployees(req: Request, res: Response, next: NextFunct
     res
       .status(200)
       .json({ success: true, employees: await listAllEmployeesForAdmin(adminUserId(req)) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ---- Company settings (week-off + per-team overtime) ----
+export async function getCompanySettingsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.status(200).json({ success: true, settings: await getCompanySettings(adminUserId(req)) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateCompanySettingsHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    const settings = await updateCompanySettings(adminUserId(req), {
+      weekoffDays: req.body.weekoffDays,
+      overtimeDisabledDepartments: req.body.overtimeDisabledDepartments,
+    });
+    res.status(200).json({ success: true, settings });
   } catch (error) {
     next(error);
   }

@@ -91,10 +91,16 @@ class ManagerApiService {
       leaveBalance: LeaveBalance.fromJson(
         (await balanceFuture)['balance'] as Map<String, dynamic>,
       ),
-      holidays: const [],
+      holidays: (workspace['holidays'] as List<dynamic>? ?? const [])
+          .map((value) => CompanyHoliday.fromJson(value as Map<String, dynamic>))
+          .toList(),
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
       myReimbursements: await reimbursementsFuture,
+      weekoffDays: (workspace['weekoffDays'] as List<dynamic>? ?? const [0])
+          .map((value) => (value as num).toInt())
+          .toList(),
+      overtimeEnabled: workspace['overtimeEnabled'] as bool? ?? true,
     );
   }
 

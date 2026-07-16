@@ -200,14 +200,16 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               subtitle: 'Apply · view requests',
               onTap: () => _open(_QuickPage.leave),
             ),
-            _GroupedActionRow(
-              icon: Icons.schedule_rounded,
-              color: _Q.gold,
-              tint: _Q.goldTint,
-              title: 'Overtime',
-              subtitle: 'Apply · view requests',
-              onTap: () => _open(_QuickPage.overtime),
-            ),
+            // Overtime is hidden for teams where it's disabled by the company.
+            if (widget.dashboard.overtimeEnabled)
+              _GroupedActionRow(
+                icon: Icons.schedule_rounded,
+                color: _Q.gold,
+                tint: _Q.goldTint,
+                title: 'Overtime',
+                subtitle: 'Apply · view requests',
+                onTap: () => _open(_QuickPage.overtime),
+              ),
             _GroupedActionRow(
               icon: Icons.receipt_long_rounded,
               color: _Q.teal,
@@ -474,7 +476,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     final pending = requests
         .where((request) => request.decision == LeaveDecision.pending)
         .length;
-    final compDays = approvedHours / 8;
     return _HubScaffold(
       key: const ValueKey('overtime-hub'),
       title: 'Overtime',
@@ -489,7 +490,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
           stats: [
             ('${_number(approvedHours)}h', 'Approved this month', _Q.teal),
             ('$pending', 'Pending', _Q.gold),
-            ('${_number(compDays)} day', 'Comp-off due', _Q.terra),
           ],
         ),
         const SizedBox(height: 24),
@@ -694,9 +694,17 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
             : _step == steps.length - 1
             ? 'Review'
             : 'Continue',
-        secondary: review ? 'Back to edit' : null,
-        onSecondary: review ? _backToEdit : null,
-        secondaryAfter: review,
+        secondary: review
+            ? 'Back to edit'
+            : _step > 0
+            ? 'Back'
+            : null,
+        onSecondary: review
+            ? _backToEdit
+            : _step > 0
+            ? _back
+            : null,
+        secondaryAfter: review || _step > 0,
         onTap: !_submitting && (review || _canContinue(step!))
             ? () => _advance(step)
             : null,
@@ -890,14 +898,13 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       _StepKind.date => _PaperCard(
         child: _MonthCalendar(
           from: _dateChosen ? _from : null,
-          selectableDayPredicate:
-              _flow == _QuickFlow.overtime || _flow == _QuickFlow.reimbursement
+          selectableDayPredicate: _flow == _QuickFlow.overtime
+              ? _canSelectOvertimeDay
+              : _flow == _QuickFlow.reimbursement
               ? (day) {
                   final now = DateTime.now();
                   final today = DateTime(now.year, now.month, now.day);
-                  return _flow == _QuickFlow.overtime
-                      ? day.isBefore(today)
-                      : !day.isAfter(today);
+                  return !day.isAfter(today);
                 }
               : null,
           onPick: (day) => setState(() {
@@ -1243,6 +1250,21 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     return widget.dashboard.holidays.any(
       (holiday) => _sameDay(holiday.date, day),
     );
+  }
+
+  // dashboard.weekoffDays uses 0=Sun..6=Sat (JS getDay); Dart weekday is
+  // 1=Mon..7=Sun, so `weekday % 7` maps Sun(7)->0 and the rest 1:1.
+  bool _isOvertimeWeekoff(DateTime day) =>
+      widget.dashboard.weekoffDays.contains(day.weekday % 7);
+
+  // Overtime day rules: any *past* day for half-day; only a week-off or
+  // company holiday for full-day. Duration was chosen on the previous step.
+  bool _canSelectOvertimeDay(DateTime day) {
+    final today = _dateOnly(DateTime.now());
+    if (!day.isBefore(today)) return false;
+    final fullDay = (_answers['Duration'] ?? _choice) == 'Full day';
+    if (!fullDay) return true;
+    return _isOvertimeWeekoff(day) || _isCompanyHoliday(day);
   }
 }
 
@@ -2538,12 +2560,6 @@ const _flowSteps = <_QuickFlow, List<_FlowStep>>{
   ],
   _QuickFlow.overtime: [
     _FlowStep(
-      label: 'Day',
-      kind: _StepKind.date,
-      question: 'Which day did you work overtime?',
-      subtitle: 'Pick the date.',
-    ),
-    _FlowStep(
       label: 'Duration',
       kind: _StepKind.choice,
       question: 'How long?',
@@ -2552,6 +2568,12 @@ const _flowSteps = <_QuickFlow, List<_FlowStep>>{
         _FlowOption('Full day', Icons.schedule_rounded, '8 hours'),
         _FlowOption('Half day', Icons.timelapse_rounded, '4 hours'),
       ],
+    ),
+    _FlowStep(
+      label: 'Day',
+      kind: _StepKind.date,
+      question: 'Which day did you work overtime?',
+      subtitle: 'Full day: week-offs & holidays only. Half day: any past day.',
     ),
     _FlowStep(
       label: 'Project',
