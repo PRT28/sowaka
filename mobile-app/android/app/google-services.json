@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "344927444374",
+    "project_id": "people-management-tool",
+    "storage_bucket": "people-management-tool.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:344927444374:android:e63e525f3dc167e65851b7",
+        "android_client_info": {
+          "package_name": "com.example.mobile_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_az1jQ9sgnMAhUDOXvQPks9W5nWZNRfM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

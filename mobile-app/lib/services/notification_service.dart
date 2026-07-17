@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../features/auth/data/auth_models.dart';
+import '../firebase_options.dart';
 import 'api_config.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
 class AppNotificationService {
@@ -29,29 +30,7 @@ class AppNotificationService {
     try {
       await _initializeFirebase();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-      await _local.initialize(
-        settings: const InitializationSettings(
-          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-          iOS: DarwinInitializationSettings(),
-        ),
-        onDidReceiveNotificationResponse: (response) {
-          if (response.payload != null) {
-            _emit(jsonDecode(response.payload!) as Map<String, dynamic>);
-          }
-        },
-      );
-      await _local
-          .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin
-          >()
-          ?.createNotificationChannel(
-            const AndroidNotificationChannel(
-              'sowaka_notifications',
-              'Sowaka notifications',
-              description: 'Company activity, approvals and reminders',
-              importance: Importance.high,
-            ),
-          );
+      if (!kIsWeb) await _initializeLocalNotifications();
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
         badge: true,
@@ -73,33 +52,50 @@ class AppNotificationService {
     }
   }
 
+  Future<void> _initializeLocalNotifications() async {
+    await _local.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      ),
+      onDidReceiveNotificationResponse: (response) {
+        if (response.payload != null) {
+          _emit(jsonDecode(response.payload!) as Map<String, dynamic>);
+        }
+      },
+    );
+    await _local
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'sowaka_notifications',
+            'Sowaka notifications',
+            description: 'Company activity, approvals and reminders',
+            importance: Importance.high,
+          ),
+        );
+  }
+
   Future<void> _initializeFirebase() async {
     if (Firebase.apps.isNotEmpty) return;
-    const apiKey = String.fromEnvironment('FIREBASE_API_KEY');
-    const appId = String.fromEnvironment('FIREBASE_APP_ID');
-    const senderId = String.fromEnvironment('FIREBASE_MESSAGING_SENDER_ID');
-    const projectId = String.fromEnvironment('FIREBASE_PROJECT_ID');
-    if (apiKey.isNotEmpty &&
-        appId.isNotEmpty &&
-        senderId.isNotEmpty &&
-        projectId.isNotEmpty) {
-      await Firebase.initializeApp(
-        options: const FirebaseOptions(
-          apiKey: apiKey,
-          appId: appId,
-          messagingSenderId: senderId,
-          projectId: projectId,
-        ),
-      );
-    } else {
-      await Firebase.initializeApp();
-    }
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   }
 
   Future<void> attachSession(AuthSession session) async {
     _session = session;
     try {
-      final token = await FirebaseMessaging.instance.getToken();
+      const webVapidKey = String.fromEnvironment(
+        'FIREBASE_WEB_VAPID_KEY',
+        defaultValue:
+            'BHqyJO-motjY5x1ouLWFjMGNdLp-nLTQRNUPa0XynKJxQ_XpMUla_IcUE9qeqNdPwCoOjwYj88Ag1ebVmwfWRvM',
+      );
+      final token = await FirebaseMessaging.instance.getToken(
+        vapidKey: kIsWeb && webVapidKey.isNotEmpty ? webVapidKey : null,
+      );
       if (token != null) await _register(token);
     } catch (_) {}
   }
@@ -120,6 +116,7 @@ class AppNotificationService {
   Future<void> _showForeground(RemoteMessage message) async {
     final notification = message.notification;
     if (notification == null) return;
+    if (kIsWeb) return;
     await _local.show(
       id: message.hashCode,
       title: notification.title,
@@ -148,7 +145,11 @@ class AppNotificationService {
       },
       body: jsonEncode({
         'token': token,
-        'platform': Platform.isIOS ? 'ios' : 'android',
+        'platform': kIsWeb
+            ? 'web'
+            : defaultTargetPlatform == TargetPlatform.iOS
+            ? 'ios'
+            : 'android',
       }),
     );
   }
