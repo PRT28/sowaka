@@ -8,6 +8,11 @@ node_modules/
 .env.*
 !.env.example
 
+# Firebase Admin credentials (backend secrets)
+**/firebase-service-account.json
+**/*-firebase-adminsdk-*.json
+**/service-account*.json
+
 # Logs
 *.log
 npm-debug.log*
