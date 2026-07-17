@@ -31,11 +31,6 @@ class AppNotificationService {
       await _initializeFirebase();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       if (!kIsWeb) await _initializeLocalNotifications();
-      await FirebaseMessaging.instance.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
       FirebaseMessaging.onMessage.listen(_showForeground);
       FirebaseMessaging.onMessageOpenedApp.listen(
         (message) => _emit(message.data),
@@ -47,9 +42,33 @@ class AppNotificationService {
       FirebaseMessaging.instance.onTokenRefresh.listen(
         (token) => _register(token),
       );
-    } catch (_) {
-      // Firebase native configuration may not be installed in local builds yet.
+    } catch (error, stackTrace) {
+      debugPrint('Notification initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
+  }
+
+  Future<NotificationSettings> requestPermission() async {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      await _local
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >()
+          ?.requestNotificationsPermission();
+    }
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    debugPrint(
+      'Notification permission status: ${settings.authorizationStatus.name}',
+    );
+    if (settings.authorizationStatus == AuthorizationStatus.authorized ||
+        settings.authorizationStatus == AuthorizationStatus.provisional) {
+      await _registerCurrentToken();
+    }
+    return settings;
   }
 
   Future<void> _initializeLocalNotifications() async {
@@ -87,6 +106,11 @@ class AppNotificationService {
 
   Future<void> attachSession(AuthSession session) async {
     _session = session;
+    await requestPermission();
+  }
+
+  Future<void> _registerCurrentToken() async {
+    if (_session == null) return;
     try {
       const webVapidKey = String.fromEnvironment(
         'FIREBASE_WEB_VAPID_KEY',
@@ -96,8 +120,16 @@ class AppNotificationService {
       final token = await FirebaseMessaging.instance.getToken(
         vapidKey: kIsWeb && webVapidKey.isNotEmpty ? webVapidKey : null,
       );
-      if (token != null) await _register(token);
-    } catch (_) {}
+      if (token != null) {
+        debugPrint('Registering ${kIsWeb ? 'web' : 'native'} FCM token');
+        await _register(token);
+      } else {
+        debugPrint('Firebase Messaging returned no registration token');
+      }
+    } catch (error, stackTrace) {
+      debugPrint('FCM token registration failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   void consumePending() {
@@ -137,7 +169,7 @@ class AppNotificationService {
   Future<void> _register(String token) async {
     final session = _session;
     if (session == null) return;
-    await http.post(
+    final response = await http.post(
       Uri.parse('${ApiConfig.baseUrl}/notifications/devices'),
       headers: {
         'Authorization': 'Bearer ${session.token}',
@@ -152,5 +184,11 @@ class AppNotificationService {
             : 'android',
       }),
     );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(
+        'Device registration failed (${response.statusCode}): ${response.body}',
+      );
+    }
+    debugPrint('FCM device token registered');
   }
 }

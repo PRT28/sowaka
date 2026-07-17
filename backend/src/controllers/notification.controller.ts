@@ -1,7 +1,12 @@
 import { NextFunction, Request, Response } from 'express';
-import { listNotifications, markNotificationRead, registerDeviceToken, unregisterDeviceToken } from '../services/notification.service';
+import { listNotifications, markNotificationRead, registerDeviceToken, sendTestPush, unregisterDeviceToken } from '../services/notification.service';
 
 const userId = (req: Request) => req.auth!.userId;
+export async function testNotification(req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json({ success: true, ...(await sendTestPush(String(req.body.token ?? ''))) });
+  } catch (error) { next(error); }
+}
 export async function registerToken(req: Request, res: Response, next: NextFunction) {
   try { res.json({ success: true, ...(await registerDeviceToken(userId(req), String(req.body.token ?? ''), String(req.body.platform ?? ''))) }); } catch (error) { next(error); }
 }

@@ -57,4 +57,22 @@ If a precise entity is unavailable or deleted, the destination opens its parent 
 
 The notification API also provides a persistent in-app inbox, device-token registration, invalid-token cleanup, and read state.
 
+## Direct push diagnostic
+
+For temporary terminal testing, set this on the backend and restart it:
+
+```env
+ENABLE_NOTIFICATION_TEST_ENDPOINT=true
+```
+
+Then send the fixed diagnostic notification to an FCM registration token:
+
+```bash
+curl -sS -X POST 'https://d3lwup4rvo6csf.cloudfront.net/notifications/test' \
+  -H 'Content-Type: application/json' \
+  --data '{"token":"FCM_REGISTRATION_TOKEN"}'
+```
+
+This endpoint intentionally accepts no user authentication, but it only sends a fixed test message to the supplied token. Set `ENABLE_NOTIFICATION_TEST_ENDPOINT=false` and restart the backend immediately after testing.
+
 The remaining matrix rows depend on domain workflows not currently represented in the database: poll/survey closing timestamps, nomination campaign publication/deadlines and winner announcements, feedback session schedules/read receipts/missed state, and attendance records/reports. Those producers must be connected when their source modules are introduced; their destination contracts are reserved above.

@@ -18,6 +18,41 @@ function messaging() {
   return getMessaging();
 }
 
+export async function sendTestPush(tokenInput: string) {
+  if (!env.notificationTestEndpointEnabled) {
+    throw new NotificationError(404, 'Notification test endpoint is disabled');
+  }
+  const token = tokenInput.trim();
+  if (!token || token.length > 4096) {
+    throw new NotificationError(400, 'A valid FCM token is required');
+  }
+  const firebase = messaging();
+  if (!firebase) {
+    throw new NotificationError(503, 'Firebase Admin is not configured');
+  }
+  const messageId = await firebase.send({
+    token,
+    notification: {
+      title: 'Sowaka test notification',
+      body: 'Push notifications are configured correctly.',
+    },
+    data: {
+      scenario: 'notification_test',
+      destination: 'connect',
+    },
+    android: {
+      priority: 'high',
+      notification: { channelId: 'sowaka_notifications' },
+    },
+    apns: { payload: { aps: { sound: 'default' } } },
+    webpush: {
+      notification: { icon: '/icons/Icon-192.png' },
+      fcmOptions: { link: '/' },
+    },
+  });
+  return { sent: true, messageId };
+}
+
 export async function registerDeviceToken(userId: string, tokenInput: string, platformInput: string) {
   const token = tokenInput.trim();
   if (!token) throw new NotificationError(400, 'FCM token is required');

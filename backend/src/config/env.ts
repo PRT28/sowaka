@@ -24,6 +24,8 @@ export const env = {
   otpDevBypass: process.env.OTP_DEV_BYPASS === 'true',
   authSessionTtlDays: Number(process.env.AUTH_SESSION_TTL_DAYS ?? 30),
   firebaseServiceAccountJson: process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? '',
+  notificationTestEndpointEnabled:
+    process.env.ENABLE_NOTIFICATION_TEST_ENDPOINT === 'true',
   s3: {
     region: process.env.AWS_REGION ?? '',
     bucket: process.env.AWS_S3_BUCKET ?? '',

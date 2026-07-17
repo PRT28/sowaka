@@ -8,6 +8,7 @@ import '../bloc/connect_bloc.dart';
 import '../data/connect_models.dart';
 import 'game_play_screen.dart';
 import '../../notifications/presentation/notification_inbox_screen.dart';
+import '../../../services/notification_service.dart';
 
 class ConnectFeedScreen extends StatefulWidget {
   const ConnectFeedScreen({
@@ -67,12 +68,16 @@ class _ConnectFeedScreenState extends State<ConnectFeedScreen> {
               children: [
                 _ConnectHeader(
                   profileAction: widget.profileAction,
-                  onNotifications: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          NotificationInboxScreen(session: widget.session),
-                    ),
-                  ),
+                  onNotifications: () async {
+                    await AppNotificationService.instance.requestPermission();
+                    if (!context.mounted) return;
+                    await Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            NotificationInboxScreen(session: widget.session),
+                      ),
+                    );
+                  },
                 ),
                 Expanded(child: _buildBody(state)),
               ],
