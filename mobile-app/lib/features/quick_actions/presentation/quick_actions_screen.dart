@@ -24,6 +24,36 @@ class QuickActionsController extends ChangeNotifier {
   void _navigationChanged() => notifyListeners();
 }
 
+class _PunchTile extends StatelessWidget {
+  const _PunchTile({required this.label, required this.value});
+  final String label;
+  final String value;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: _Q.line),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: _QText.eyebrow),
+        const SizedBox(height: 5),
+        Text(
+          value,
+          style: const TextStyle(
+            color: _Q.ink,
+            fontWeight: FontWeight.w800,
+            fontSize: 16,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 enum _QuickPage {
   home,
   leave,
@@ -74,6 +104,10 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   final Map<String, String> _answers = {};
   _Policy? _policy;
   bool _submitting = false;
+  DateTime _attendanceMonth = DateTime(
+    DateTime.now().year,
+    DateTime.now().month,
+  );
 
   @override
   void initState() {
@@ -238,8 +272,8 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               icon: Icons.calendar_month_outlined,
               color: _Q.terraDeep,
               tint: _Q.terraTint,
-              title: 'Download calendar',
-              subtitle: 'Leaves + holidays .ics',
+              title: 'Calendar',
+              subtitle: 'Attendance · punches · regularize',
               onTap: () => _open(_QuickPage.calendar),
               last: true,
             ),
@@ -637,42 +671,318 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   }
 
   Widget _calendar() {
-    final year = widget.dashboard.leaveBalance.year;
+    final records = {
+      for (final record in widget.dashboard.attendance)
+        _dateKey(record.workDate): record,
+    };
+    final requests = {
+      for (final request in widget.dashboard.regularizations)
+        _dateKey(request.workDate): request,
+    };
+    final firstWeekday =
+        DateTime(_attendanceMonth.year, _attendanceMonth.month, 1).weekday % 7;
+    final days = DateTime(
+      _attendanceMonth.year,
+      _attendanceMonth.month + 1,
+      0,
+    ).day;
     return _HubScaffold(
       key: const ValueKey('calendar'),
-      title: 'Leave calendar',
+      title: 'Attendance calendar',
       onBack: _back,
       children: [
-        _RequestGroup(
+        Row(
           children: [
-            _DownloadRow(
-              icon: Icons.calendar_month_rounded,
-              color: _Q.terra,
-              tint: _Q.terraTint,
-              name: 'Sowaka-$year.ics',
-              subtitle: 'Your leaves + 14 company holidays',
-              onAction: _fileAction,
+            IconButton(
+              onPressed: () => _changeAttendanceMonth(-1),
+              icon: const Icon(Icons.chevron_left),
             ),
-            _DownloadRow(
-              icon: Icons.description_rounded,
-              color: _Q.plum,
-              tint: _Q.plumTint,
-              name: 'Holidays-$year.pdf',
-              subtitle: 'Printable company holiday list',
-              onAction: _fileAction,
-              last: true,
+            Expanded(
+              child: Text(
+                '${_monthName(_attendanceMonth.month)} ${_attendanceMonth.year}',
+                textAlign: TextAlign.center,
+                style: _QText.heroSmall,
+              ),
+            ),
+            IconButton(
+              onPressed: () => _changeAttendanceMonth(1),
+              icon: const Icon(Icons.chevron_right),
             ),
           ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: const ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+              .map(
+                (d) => Expanded(
+                  child: Text(
+                    d,
+                    textAlign: TextAlign.center,
+                    style: _QText.eyebrow,
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 8),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            mainAxisSpacing: 7,
+            crossAxisSpacing: 7,
+          ),
+          itemCount: firstWeekday + days,
+          itemBuilder: (context, index) {
+            if (index < firstWeekday) return const SizedBox.shrink();
+            final day = DateTime(
+              _attendanceMonth.year,
+              _attendanceMonth.month,
+              index - firstWeekday + 1,
+            );
+            final record = records[_dateKey(day)];
+            final request = requests[_dateKey(day)];
+            final future = day.isAfter(DateTime.now());
+            final weekoff = widget.dashboard.weekoffDays.contains(
+              day.weekday % 7,
+            );
+            final complete =
+                record?.punchIn != null && record?.punchOut != null;
+            final attention =
+                !future && !weekoff && !complete && request == null;
+            final color = request != null
+                ? _Q.gold
+                : complete
+                ? _Q.teal
+                : attention
+                ? _Q.terra
+                : _Q.inkFaint;
+            return InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: future
+                  ? null
+                  : () => _openAttendanceDay(day, record, request, weekoff),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: color.withValues(alpha: .28)),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      '${day.day}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: future ? _Q.inkFaint : _Q.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Container(
+                      width: 5,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 18),
+        const _InfoCard(
+          'Tap a day to see punch-in and punch-out. Missing records can be regularized or submitted as leave.',
         ),
       ],
     );
   }
 
-  void _fileAction(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _changeAttendanceMonth(int delta) async {
+    final month = DateTime(
+      _attendanceMonth.year,
+      _attendanceMonth.month + delta,
+    );
+    setState(() => _attendanceMonth = month);
+    await widget.bloc.add(LoadAttendanceMonth(month));
   }
+
+  Future<void> _openAttendanceDay(
+    DateTime day,
+    AttendanceRecord? record,
+    AttendanceRegularization? request,
+    bool weekoff,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.fromLTRB(
+          22,
+          0,
+          22,
+          22 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              '${_weekday(day.weekday)}, ${_short(day)}',
+              style: _QText.heroSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              weekoff
+                  ? 'Weekly off'
+                  : request != null
+                  ? 'Regularization · ${request.status}'
+                  : record == null
+                  ? 'Needs attention · no attendance record'
+                  : 'Attendance punches',
+              style: _QText.subtitle,
+            ),
+            if (!weekoff) ...[
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: _PunchTile(
+                      label: 'IN',
+                      value: _clock(record?.punchIn),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _PunchTile(
+                      label: 'OUT',
+                      value: _clock(record?.punchOut),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (!weekoff &&
+                request == null &&
+                (record?.punchIn == null || record?.punchOut == null)) ...[
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  _showRegularization(day);
+                },
+                child: const Text('Request as present'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(sheetContext);
+                  _start(_QuickFlow.leave);
+                },
+                child: const Text('Apply leave instead'),
+              ),
+            ],
+            if (request != null) ...[
+              const SizedBox(height: 14),
+              _InfoCard(
+                '${request.period.replaceAll('_', ' ')} · ${request.note}\nStatus: ${request.status}',
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showRegularization(DateTime day) async {
+    final note = TextEditingController();
+    String period = 'full_day';
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(
+            22,
+            24,
+            22,
+            22 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('Request as present', style: _QText.heroSmall),
+              const SizedBox(height: 6),
+              Text(_short(day), style: _QText.subtitle),
+              const SizedBox(height: 18),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'full_day', label: Text('Full day')),
+                  ButtonSegment(value: 'first_half', label: Text('First half')),
+                  ButtonSegment(
+                    value: 'second_half',
+                    label: Text('Second half'),
+                  ),
+                ],
+                selected: {period},
+                onSelectionChanged: (v) =>
+                    setSheetState(() => period = v.first),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: note,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  hintText: 'Explain what happened',
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () async {
+                  if (note.text.trim().isEmpty) return;
+                  final ok = await widget.bloc.add(
+                    SubmitAttendanceRegularization(
+                      workDate: day,
+                      period: period,
+                      note: note.text.trim(),
+                    ),
+                  );
+                  if (ok && dialogContext.mounted) Navigator.pop(dialogContext);
+                },
+                child: const Text('Send to manager'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    note.dispose();
+  }
+
+  static String _dateKey(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
+  static String _clock(DateTime? value) => value == null
+      ? 'Missing'
+      : '${value.hour % 12 == 0 ? 12 : value.hour % 12}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
+  static String _monthName(int month) => const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][month - 1];
 
   Widget _wizard() {
     final steps = _stepsForCurrentFlow();
@@ -1854,85 +2164,6 @@ class _CalendarArrow extends StatelessWidget {
         height: 32,
         child: Icon(icon, color: _Q.terra, size: 19),
       ),
-    ),
-  );
-}
-
-class _DownloadRow extends StatelessWidget {
-  const _DownloadRow({
-    required this.icon,
-    required this.color,
-    required this.tint,
-    required this.name,
-    required this.subtitle,
-    required this.onAction,
-    this.last = false,
-  });
-  final IconData icon;
-  final Color color;
-  final Color tint;
-  final String name;
-  final String subtitle;
-  final ValueChanged<String> onAction;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
-    decoration: BoxDecoration(
-      border: last ? null : const Border(bottom: BorderSide(color: _Q.line)),
-    ),
-    child: Row(
-      children: [
-        _IconTile(icon: icon, color: color, tint: tint, size: 46),
-        const SizedBox(width: 13),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: _QText.cardTitle,
-              ),
-              const SizedBox(height: 2),
-              Text(subtitle, style: _QText.cardSubtitle),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        _FileButton(
-          icon: Icons.visibility_outlined,
-          onTap: () => onAction('Preview · $name'),
-        ),
-        const SizedBox(width: 8),
-        _FileButton(
-          icon: Icons.download_rounded,
-          onTap: () => onAction('Downloaded · $name'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _FileButton extends StatelessWidget {
-  const _FileButton({required this.icon, required this.onTap});
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => InkWell(
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(12),
-    child: Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        border: Border.all(color: _Q.line, width: 1.5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Icon(icon, size: 19, color: _Q.inkSoft),
     ),
   );
 }

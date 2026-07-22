@@ -31,6 +31,11 @@ class _ManageContent extends StatelessWidget {
         bloc: bloc,
         type: _RequestType.overtime,
       ),
+      ManagerView.attendanceCorrections => _RequestList(
+        state: state,
+        bloc: bloc,
+        type: _RequestType.attendance,
+      ),
     };
   }
 }
@@ -63,6 +68,9 @@ class _ManagerHome extends StatelessWidget {
     final pendingLeaves = pendingLeaveList.length;
     final named = data.awards.where((award) => award.nomineeId != null).length;
     final pendingOvertime = data.overtime
+        .where((request) => request.decision == LeaveDecision.pending)
+        .toList();
+    final pendingCorrections = data.managerRegularizations
         .where((request) => request.decision == LeaveDecision.pending)
         .toList();
 
@@ -195,6 +203,25 @@ class _ManagerHome extends StatelessWidget {
           ),
           emptyText: 'All requests reviewed',
           onTap: () => bloc.add(const OpenOvertimeRequests()),
+        ),
+        const SizedBox(height: 28),
+        _SectionTitle(
+          title: 'Attendance corrections',
+          trailing: pendingCorrections.isEmpty
+              ? 'All clear'
+              : '${pendingCorrections.length} pending',
+          onTap: () => bloc.add(const OpenAttendanceCorrections()),
+        ),
+        const SizedBox(height: 12),
+        _AvatarActionCluster(
+          people: pendingCorrections.map(
+            (request) => _ActionAvatar(
+              initial: _nameInitials(request.who),
+              index: request.avatarIndex,
+            ),
+          ),
+          emptyText: 'All requests reviewed',
+          onTap: () => bloc.add(const OpenAttendanceCorrections()),
         ),
         const SizedBox(height: 28),
         _SectionTitle(

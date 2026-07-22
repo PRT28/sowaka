@@ -6,6 +6,7 @@ enum ManagerView {
   feedbackRecord,
   leaveRequests,
   overtimeRequests,
+  attendanceCorrections,
 }
 
 enum FeedbackStatus { pending, saved, sent, missed }
@@ -463,7 +464,8 @@ class ReimbursementClaim {
   final String note;
   final String status;
   final DateTime createdAt;
-  final String decidedByRole; // reimbursements are always decided from the dashboard ('admin')
+  final String
+  decidedByRole; // reimbursements are always decided from the dashboard ('admin')
 
   bool get decidedByAdmin => decidedByRole == 'admin';
 
@@ -539,6 +541,9 @@ class ManagerDashboard {
     required this.myReimbursements,
     this.weekoffDays = const [0],
     this.overtimeEnabled = true,
+    this.attendance = const [],
+    this.regularizations = const [],
+    this.managerRegularizations = const [],
   });
 
   final String managerName;
@@ -563,6 +568,9 @@ class ManagerDashboard {
   // and whether the overtime feature is enabled for this user's team.
   final List<int> weekoffDays;
   final bool overtimeEnabled;
+  final List<AttendanceRecord> attendance;
+  final List<AttendanceRegularization> regularizations;
+  final List<AttendanceRegularization> managerRegularizations;
 
   ManagerDashboard copyWith({
     List<TeamMember>? team,
@@ -576,6 +584,9 @@ class ManagerDashboard {
     List<OvertimeRequest>? overtime,
     List<OvertimeRequest>? myOvertime,
     List<ReimbursementClaim>? myReimbursements,
+    List<AttendanceRecord>? attendance,
+    List<AttendanceRegularization>? regularizations,
+    List<AttendanceRegularization>? managerRegularizations,
   }) {
     return ManagerDashboard(
       managerName: managerName,
@@ -599,6 +610,79 @@ class ManagerDashboard {
       myReimbursements: myReimbursements ?? this.myReimbursements,
       weekoffDays: weekoffDays,
       overtimeEnabled: overtimeEnabled,
+      attendance: attendance ?? this.attendance,
+      regularizations: regularizations ?? this.regularizations,
+      managerRegularizations:
+          managerRegularizations ?? this.managerRegularizations,
     );
   }
+}
+
+class AttendanceRecord {
+  const AttendanceRecord({required this.workDate, this.punchIn, this.punchOut});
+  final DateTime workDate;
+  final DateTime? punchIn;
+  final DateTime? punchOut;
+  factory AttendanceRecord.fromJson(Map<String, dynamic> json) =>
+      AttendanceRecord(
+        workDate: DateTime.parse(json['workDate'] as String),
+        punchIn: DateTime.tryParse(json['punchIn'] as String? ?? '')?.toLocal(),
+        punchOut: DateTime.tryParse(
+          json['punchOut'] as String? ?? '',
+        )?.toLocal(),
+      );
+}
+
+class AttendanceRegularization {
+  const AttendanceRegularization({
+    required this.id,
+    required this.workDate,
+    required this.period,
+    required this.note,
+    required this.status,
+    required this.who,
+    required this.team,
+    required this.createdAt,
+    this.punchIn,
+    this.punchOut,
+    this.managerNote = '',
+  });
+  final String id;
+  final DateTime workDate;
+  final String period;
+  final String note;
+  final String status;
+  final String who;
+  final String team;
+  final DateTime createdAt;
+  final DateTime? punchIn;
+  final DateTime? punchOut;
+  final String managerNote;
+  String get initial => who.isEmpty ? '?' : who[0].toUpperCase();
+  int get avatarIndex => who.hashCode.abs() % 7;
+  LeaveDecision get decision => switch (status) {
+    'approved' => LeaveDecision.approved,
+    'declined' => LeaveDecision.declined,
+    _ => LeaveDecision.pending,
+  };
+  factory AttendanceRegularization.fromJson(
+    Map<String, dynamic> json,
+  ) => AttendanceRegularization(
+    id: json['id'] as String? ?? '',
+    workDate: DateTime.parse(json['workDate'] as String),
+    period: json['period'] as String? ?? 'full_day',
+    note: json['note'] as String? ?? '',
+    status: json['status'] as String? ?? 'pending',
+    who:
+        (json['employee'] as Map<String, dynamic>?)?['name'] as String? ??
+        'Employee',
+    team:
+        (json['employee'] as Map<String, dynamic>?)?['department'] as String? ??
+        'Team',
+    createdAt:
+        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+    punchIn: DateTime.tryParse(json['punchIn'] as String? ?? '')?.toLocal(),
+    punchOut: DateTime.tryParse(json['punchOut'] as String? ?? '')?.toLocal(),
+    managerNote: json['managerNote'] as String? ?? '',
+  );
 }

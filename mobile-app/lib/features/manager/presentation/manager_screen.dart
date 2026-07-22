@@ -101,6 +101,8 @@ class _ManagerScreenState extends State<ManagerScreen> {
       _bloc.add(const CloseLeaveRequests());
     } else if (state.view == ManagerView.overtimeRequests) {
       _bloc.add(const CloseOvertimeRequests());
+    } else if (state.view == ManagerView.attendanceCorrections) {
+      _bloc.add(const CloseAttendanceCorrections());
     } else if (state.tab == ManagerTab.quick &&
         _quickActionsController.canGoBack) {
       _quickActionsController.handleBack();

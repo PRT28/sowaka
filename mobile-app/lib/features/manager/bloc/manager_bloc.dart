@@ -148,6 +148,14 @@ class CloseOvertimeRequests extends ManagerEvent {
   const CloseOvertimeRequests();
 }
 
+class OpenAttendanceCorrections extends ManagerEvent {
+  const OpenAttendanceCorrections();
+}
+
+class CloseAttendanceCorrections extends ManagerEvent {
+  const CloseAttendanceCorrections();
+}
+
 class OpenFeedbackRecord extends ManagerEvent {
   const OpenFeedbackRecord(this.memberId);
   final int memberId;
@@ -278,6 +286,33 @@ class SubmitReimbursementApplication extends ManagerEvent {
   final String note;
 }
 
+class LoadAttendanceMonth extends ManagerEvent {
+  const LoadAttendanceMonth(this.month);
+  final DateTime month;
+}
+
+class SubmitAttendanceRegularization extends ManagerEvent {
+  const SubmitAttendanceRegularization({
+    required this.workDate,
+    required this.period,
+    required this.note,
+  });
+  final DateTime workDate;
+  final String period;
+  final String note;
+}
+
+class DecideAttendanceRegularization extends ManagerEvent {
+  const DecideAttendanceRegularization(
+    this.id,
+    this.decision, {
+    this.managerNote = '',
+  });
+  final String id;
+  final LeaveDecision decision;
+  final String managerNote;
+}
+
 class ClearManagerMessage extends ManagerEvent {
   const ClearManagerMessage();
 }
@@ -338,6 +373,61 @@ class ManagerBloc {
               applyLeaveOpen: false,
             ),
           );
+        case LoadAttendanceMonth(:final month):
+          final from = DateTime(month.year, month.month, 1);
+          final to = DateTime(month.year, month.month + 1, 0);
+          final result = await _service.fetchAttendance(from, to);
+          final data = _state.dashboard;
+          _emit(
+            _state.copyWith(
+              dashboard: data?.copyWith(
+                attendance: result.$1,
+                regularizations: result.$2,
+              ),
+            ),
+          );
+        case SubmitAttendanceRegularization(
+          :final workDate,
+          :final period,
+          :final note,
+        ):
+          final request = await _service.submitAttendanceRegularization(
+            workDate: workDate,
+            period: period,
+            note: note,
+          );
+          final data = _state.dashboard;
+          _emit(
+            _state.copyWith(
+              dashboard: data?.copyWith(
+                regularizations: [request, ...data.regularizations],
+              ),
+              message: 'Regularization sent to your manager',
+            ),
+          );
+        case DecideAttendanceRegularization(
+          :final id,
+          :final decision,
+          :final managerNote,
+        ):
+          final updated = await _service.decideAttendanceRegularization(
+            id,
+            decision,
+            managerNote,
+          );
+          final data = _state.dashboard;
+          _emit(
+            _state.copyWith(
+              dashboard: data?.copyWith(
+                managerRegularizations: data.managerRegularizations
+                    .map((item) => item.id == id ? updated : item)
+                    .toList(),
+              ),
+              message: decision == LeaveDecision.approved
+                  ? 'Attendance correction approved'
+                  : 'Attendance correction declined',
+            ),
+          );
         case OpenFeedbackList():
           _emit(_state.copyWith(view: ManagerView.feedbackList));
         case CloseFeedbackList():
@@ -355,6 +445,10 @@ class ManagerBloc {
         case OpenOvertimeRequests():
           _emit(_state.copyWith(view: ManagerView.overtimeRequests));
         case CloseOvertimeRequests():
+          _emit(_state.copyWith(view: ManagerView.home));
+        case OpenAttendanceCorrections():
+          _emit(_state.copyWith(view: ManagerView.attendanceCorrections));
+        case CloseAttendanceCorrections():
           _emit(_state.copyWith(view: ManagerView.home));
         case OpenFeedbackRecord(:final memberId):
           final member = _state.dashboard?.team

@@ -27,6 +27,14 @@ class ManagerApiService {
     final myOvertimeFuture = fetchMyOvertime();
     final overtimeFuture = fetchManagerOvertime();
     final reimbursementsFuture = fetchMyReimbursements();
+    final now = DateTime.now();
+    final attendanceFuture = fetchAttendance(
+      DateTime(now.year, now.month, 1),
+      DateTime(now.year, now.month + 1, 0),
+    );
+    final regularizationInboxFuture = session.user.role == 'manager'
+        ? fetchManagerAttendanceRegularizations()
+        : Future<List<AttendanceRegularization>>.value(const []);
     final workspace = await workspaceFuture;
     final teamValues = workspace['team'] as List<dynamic>? ?? const [];
     final team = teamValues.indexed.map((entry) {
@@ -65,6 +73,7 @@ class ManagerApiService {
             .map((value) => Nomination.fromJson(value as Map<String, dynamic>))
             .toList();
 
+    final attendanceData = await attendanceFuture;
     return ManagerDashboard(
       managerName: session.user.name,
       managerInitial: session.user.name.isEmpty ? '?' : session.user.name[0],
@@ -92,7 +101,9 @@ class ManagerApiService {
         (await balanceFuture)['balance'] as Map<String, dynamic>,
       ),
       holidays: (workspace['holidays'] as List<dynamic>? ?? const [])
-          .map((value) => CompanyHoliday.fromJson(value as Map<String, dynamic>))
+          .map(
+            (value) => CompanyHoliday.fromJson(value as Map<String, dynamic>),
+          )
           .toList(),
       overtime: await overtimeFuture,
       myOvertime: await myOvertimeFuture,
@@ -101,6 +112,68 @@ class ManagerApiService {
           .map((value) => (value as num).toInt())
           .toList(),
       overtimeEnabled: workspace['overtimeEnabled'] as bool? ?? true,
+      attendance: attendanceData.$1,
+      regularizations: attendanceData.$2,
+      managerRegularizations: await regularizationInboxFuture,
+    );
+  }
+
+  Future<(List<AttendanceRecord>, List<AttendanceRegularization>)>
+  fetchAttendance(DateTime from, DateTime to) async {
+    final json = await _request(
+      'GET',
+      '/attendance/mine?from=${_dateOnly(from)}&to=${_dateOnly(to)}',
+    );
+    return (
+      (json['records'] as List<dynamic>? ?? const [])
+          .map((v) => AttendanceRecord.fromJson(v as Map<String, dynamic>))
+          .toList(),
+      (json['regularizations'] as List<dynamic>? ?? const [])
+          .map(
+            (v) => AttendanceRegularization.fromJson(v as Map<String, dynamic>),
+          )
+          .toList(),
+    );
+  }
+
+  Future<AttendanceRegularization> submitAttendanceRegularization({
+    required DateTime workDate,
+    required String period,
+    required String note,
+  }) async {
+    final json = await _request(
+      'POST',
+      '/attendance/regularizations',
+      body: {'workDate': _dateOnly(workDate), 'period': period, 'note': note},
+    );
+    return AttendanceRegularization.fromJson(
+      json['regularization'] as Map<String, dynamic>,
+    );
+  }
+
+  Future<List<AttendanceRegularization>>
+  fetchManagerAttendanceRegularizations() async {
+    final json = await _request('GET', '/attendance/regularizations/inbox');
+    return (json['regularizations'] as List<dynamic>? ?? const [])
+        .map(
+          (value) =>
+              AttendanceRegularization.fromJson(value as Map<String, dynamic>),
+        )
+        .toList();
+  }
+
+  Future<AttendanceRegularization> decideAttendanceRegularization(
+    String id,
+    LeaveDecision decision,
+    String managerNote,
+  ) async {
+    final json = await _request(
+      'PATCH',
+      '/attendance/regularizations/$id/decision',
+      body: {'decision': decision.name, 'managerNote': managerNote},
+    );
+    return AttendanceRegularization.fromJson(
+      json['regularization'] as Map<String, dynamic>,
     );
   }
 

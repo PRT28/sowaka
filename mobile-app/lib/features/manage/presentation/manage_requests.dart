@@ -1,6 +1,6 @@
 part of '../../manager/presentation/manager_screen.dart';
 
-enum _RequestType { leave, overtime }
+enum _RequestType { leave, overtime, attendance }
 
 class _RequestList extends StatefulWidget {
   const _RequestList({
@@ -33,14 +33,20 @@ class _RequestListState extends State<_RequestList> {
         widget.state.dashboard!.overtime
             .where((item) => item.decision == LeaveDecision.pending)
             .length,
+      _RequestType.attendance =>
+        widget.state.dashboard!.managerRegularizations
+            .where((item) => item.decision == LeaveDecision.pending)
+            .length,
     };
     final close = switch (widget.type) {
       _RequestType.leave => const CloseLeaveRequests(),
       _RequestType.overtime => const CloseOvertimeRequests(),
+      _RequestType.attendance => const CloseAttendanceCorrections(),
     };
     final title = switch (widget.type) {
       _RequestType.leave => 'Leave requests',
       _RequestType.overtime => 'Overtime requests',
+      _RequestType.attendance => 'Attendance corrections',
     };
 
     return Column(
@@ -115,7 +121,25 @@ class _RequestListState extends State<_RequestList> {
                       .toList(),
                 );
               }
-              return const SizedBox.shrink();
+              final items = widget.state.dashboard!.managerRegularizations
+                  .where(
+                    (item) => _reviewed
+                        ? item.decision != LeaveDecision.pending
+                        : item.decision == LeaveDecision.pending,
+                  )
+                  .toList();
+              return _RequestListBody(
+                empty: items.isEmpty,
+                reviewed: _reviewed,
+                children: items
+                    .map(
+                      (item) => _AttendanceCorrectionCard(
+                        request: item,
+                        bloc: widget.bloc,
+                      ),
+                    )
+                    .toList(),
+              );
             },
           ),
         ),
@@ -210,6 +234,432 @@ class _RequestListBody extends StatelessWidget {
     );
   }
 }
+
+class _AttendanceCorrectionCard extends StatelessWidget {
+  const _AttendanceCorrectionCard({required this.request, required this.bloc});
+  final AttendanceRegularization request;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => PressableCard(
+    onTap: () => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            _AttendanceCorrectionDetailPage(request: request, bloc: bloc),
+      ),
+    ),
+    padding: EdgeInsets.zero,
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(15, 15, 15, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  AvatarBadge(
+                    initial: request.initial,
+                    index: request.avatarIndex,
+                    size: 42,
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          request.who,
+                          style: const TextStyle(
+                            color: MColors.ink,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15.5,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${request.team} · ${_appliedTimestamp(request.createdAt)}',
+                          style: const TextStyle(
+                            color: MColors.inkFaint,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (request.decision != LeaveDecision.pending)
+                    _LeaveStatusPill(decision: request.decision),
+                ],
+              ),
+              const SizedBox(height: 13),
+              _AttendanceDatePanel(request: request),
+              const SizedBox(height: 12),
+              Text(
+                request.note,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: MColors.inkSoft,
+                  fontSize: 13.5,
+                  height: 1.55,
+                ),
+              ),
+              if (request.decision == LeaveDecision.declined &&
+                  request.managerNote.isNotEmpty) ...[
+                const SizedBox(height: 11),
+                _ReviewedDeclineNote(note: request.managerNote),
+              ],
+            ],
+          ),
+        ),
+        if (request.decision == LeaveDecision.pending)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(15, 0, 15, 15),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ActionButton(
+                    label: 'Decline',
+                    icon: Icons.close_rounded,
+                    background: Colors.white,
+                    foreground: MColors.inkSoft,
+                    border: MColors.line,
+                    onTap: () => _decide(context, LeaveDecision.declined),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ActionButton(
+                    label: 'Approve',
+                    icon: Icons.check_rounded,
+                    background: MColors.sageDeep,
+                    foreground: Colors.white,
+                    onTap: () => _decide(context, LeaveDecision.approved),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Future<void> _decide(BuildContext context, LeaveDecision decision) async {
+    final note = await _showAttendanceDecisionSheet(context, request, decision);
+    if (note == null || !context.mounted) return;
+    bloc.add(
+      DecideAttendanceRegularization(request.id, decision, managerNote: note),
+    );
+  }
+}
+
+class _AttendanceDatePanel extends StatelessWidget {
+  const _AttendanceDatePanel({required this.request});
+  final AttendanceRegularization request;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+    decoration: BoxDecoration(
+      color: MColors.terraTint,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          Icons.calendar_month_rounded,
+          size: 18,
+          color: MColors.terra,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            '${_fullWeekday(request.workDate)}, ${_shortAttendanceDate(request.workDate)}',
+            style: const TextStyle(
+              color: MColors.terra,
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          _attendancePeriod(request.period),
+          style: TextStyle(
+            color: MColors.terra.withValues(alpha: .85),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Future<String?> _showAttendanceDecisionSheet(
+  BuildContext context,
+  AttendanceRegularization request,
+  LeaveDecision decision,
+) async {
+  final note = TextEditingController();
+  final approved = decision == LeaveDecision.approved;
+  final result = await showModalBottomSheet<String>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) => Padding(
+      padding: EdgeInsets.fromLTRB(
+        18,
+        0,
+        18,
+        18 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            approved ? 'Approve correction' : 'Decline correction',
+            style: const TextStyle(
+              color: MColors.ink,
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${request.who} · ${_attendancePeriod(request.period)} · ${_shortAttendanceDate(request.workDate)}',
+            style: const TextStyle(color: MColors.inkSoft, fontSize: 13.5),
+          ),
+          if (!approved) ...[
+            const SizedBox(height: 16),
+            TextField(
+              controller: note,
+              autofocus: true,
+              maxLines: 2,
+              decoration: InputDecoration(
+                hintText:
+                    'Add a note for ${request.who.split(' ').first} — why it can’t be approved…',
+              ),
+            ),
+          ],
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Expanded(
+                child: ActionButton(
+                  label: 'Cancel',
+                  background: Colors.white,
+                  foreground: MColors.inkSoft,
+                  border: MColors.line,
+                  onTap: () => Navigator.pop(sheetContext),
+                ),
+              ),
+              const SizedBox(width: 11),
+              Expanded(
+                flex: 2,
+                child: ActionButton(
+                  label: approved ? 'Confirm approve' : 'Confirm decline',
+                  icon: approved ? Icons.check_rounded : Icons.close_rounded,
+                  background: approved ? MColors.sageDeep : MColors.live,
+                  foreground: Colors.white,
+                  onTap: () {
+                    if (!approved && note.text.trim().isEmpty) return;
+                    Navigator.pop(sheetContext, note.text.trim());
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+  note.dispose();
+  return result;
+}
+
+class _AttendanceCorrectionDetailPage extends StatelessWidget {
+  const _AttendanceCorrectionDetailPage({
+    required this.request,
+    required this.bloc,
+  });
+  final AttendanceRegularization request;
+  final ManagerBloc bloc;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: MColors.bg,
+    body: Column(
+      children: [
+        _TopBar(
+          title: 'Attendance correction',
+          sub: '${request.who} · ${request.team}',
+          onBack: () => Navigator.pop(context),
+        ),
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            children: [
+              PressableCard(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        AvatarBadge(
+                          initial: request.initial,
+                          index: request.avatarIndex,
+                          size: 50,
+                        ),
+                        const SizedBox(width: 13),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                request.who,
+                                style: const TextStyle(
+                                  color: MColors.ink,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _appliedTimestamp(request.createdAt),
+                                style: const TextStyle(
+                                  color: MColors.inkFaint,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (request.decision != LeaveDecision.pending)
+                          _LeaveStatusPill(decision: request.decision),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _AttendanceDatePanel(request: request),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _LeaveSectionLabel('PUNCH TIMES'),
+              const SizedBox(height: 7),
+              PressableCard(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 5,
+                ),
+                child: Column(
+                  children: [
+                    _LeaveDetailRow(
+                      icon: Icons.schedule_rounded,
+                      label: 'Punch in',
+                      value: _attendanceClock(request.punchIn),
+                    ),
+                    const Divider(height: 1, color: MColors.line),
+                    _LeaveDetailRow(
+                      icon: Icons.schedule_rounded,
+                      label: 'Punch out',
+                      value: _attendanceClock(request.punchOut),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              const _LeaveSectionLabel('REASON'),
+              const SizedBox(height: 7),
+              PressableCard(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  request.note,
+                  style: const TextStyle(
+                    color: MColors.ink,
+                    fontSize: 14.5,
+                    height: 1.65,
+                  ),
+                ),
+              ),
+              if (request.managerNote.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const _LeaveSectionLabel('YOUR NOTE'),
+                const SizedBox(height: 7),
+                _ReviewedDeclineNote(note: request.managerNote),
+              ],
+            ],
+          ),
+        ),
+        if (request.decision == LeaveDecision.pending)
+          Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: MColors.line)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: ActionButton(
+                      label: 'Decline',
+                      icon: Icons.close_rounded,
+                      background: Colors.white,
+                      foreground: MColors.inkSoft,
+                      border: MColors.line,
+                      onTap: () => _decide(context, LeaveDecision.declined),
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    flex: 2,
+                    child: ActionButton(
+                      label: 'Approve',
+                      icon: Icons.check_rounded,
+                      background: MColors.sageDeep,
+                      foreground: Colors.white,
+                      onTap: () => _decide(context, LeaveDecision.approved),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
+  Future<void> _decide(BuildContext context, LeaveDecision decision) async {
+    final note = await _showAttendanceDecisionSheet(context, request, decision);
+    if (note == null || !context.mounted) return;
+    await bloc.add(
+      DecideAttendanceRegularization(request.id, decision, managerNote: note),
+    );
+    if (context.mounted) Navigator.pop(context);
+  }
+}
+
+String _attendancePeriod(String value) => switch (value) {
+  'first_half' => 'First half',
+  'second_half' => 'Second half',
+  _ => 'Full day',
+};
+String _shortAttendanceDate(DateTime value) =>
+    '${value.day} ${const ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][value.month - 1]}';
+String _fullWeekday(DateTime value) => const [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+][value.weekday - 1];
+String _attendanceClock(DateTime? value) => value == null
+    ? '—'
+    : '${value.hour % 12 == 0 ? 12 : value.hour % 12}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
 
 class _LeaveCard extends StatelessWidget {
   const _LeaveCard({required this.leave, required this.bloc});
