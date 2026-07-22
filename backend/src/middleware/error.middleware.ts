@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { env } from '../config/env';
 import { AuthError } from '../services/auth.service';
 import { LeaveError } from '../services/leave.service';
+import { AttendanceError } from '../services/attendance.service';
 import { HolidayError } from '../services/holiday.service';
 import { ReportingError } from '../services/reporting.service';
 import { ManagerError } from '../services/manager.service';
@@ -52,6 +53,7 @@ function getStatusCode(error: unknown): number {
   if (
     error instanceof AuthError ||
     error instanceof LeaveError ||
+    error instanceof AttendanceError ||
     error instanceof HolidayError ||
     error instanceof ReportingError ||
     error instanceof ManagerError ||

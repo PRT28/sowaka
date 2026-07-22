@@ -20,6 +20,7 @@ import { ReimbursementClaim } from '../models/reimbursement.model';
 import { ConnectPost } from '../models/connect.model';
 import { Game, GameScore } from '../models/game.model';
 import { AppNotification, DeviceToken } from '../models/notification.model';
+import { AttendanceRecord, AttendanceRegularization } from '../models/attendance.model';
 
 let client: MongoClient | null = null;
 let db: Db | null = null;
@@ -104,6 +105,14 @@ export function notifications(): Collection<AppNotification> {
   return getDb().collection<AppNotification>('notifications');
 }
 
+export function attendanceRecords(): Collection<AttendanceRecord> {
+  return getDb().collection<AttendanceRecord>('attendance_records');
+}
+
+export function attendanceRegularizations(): Collection<AttendanceRegularization> {
+  return getDb().collection<AttendanceRegularization>('attendance_regularizations');
+}
+
 async function ensureIndexes(database: Db): Promise<void> {
   await database
     .collection<OtpChallenge>('otp_challenges')
@@ -180,6 +189,15 @@ async function ensureIndexes(database: Db): Promise<void> {
   await notificationsCollection.createIndex({ id: 1 }, { unique: true });
   await notificationsCollection.createIndex({ userId: 1, createdAt: -1 });
   await notificationsCollection.createIndex({ userId: 1, readAt: 1, createdAt: -1 });
+
+  const attendanceCollection = database.collection<AttendanceRecord>('attendance_records');
+  await attendanceCollection.createIndex({ sourceKey: 1 }, { unique: true });
+  await attendanceCollection.createIndex({ userId: 1, workDate: 1 });
+  await attendanceCollection.createIndex({ employeeId: 1, workDate: 1 });
+  const regularizationsCollection =
+    database.collection<AttendanceRegularization>('attendance_regularizations');
+  await regularizationsCollection.createIndex({ userId: 1, workDate: 1, status: 1 });
+  await regularizationsCollection.createIndex({ managerUserId: 1, status: 1, createdAt: -1 });
 }
 
 export async function closeDb(): Promise<void> {

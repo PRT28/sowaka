@@ -10,6 +10,7 @@ import { managerRouter } from './manager.routes';
 import { overtimeRouter } from './overtime.routes';
 import { reimbursementRouter } from './reimbursement.routes';
 import { notificationRouter } from './notification.routes';
+import { attendanceRouter } from './attendance.routes';
 
 export const router = Router();
 
@@ -23,4 +24,5 @@ router.use('/manager', managerRouter);
 router.use('/overtime', overtimeRouter);
 router.use('/reimbursements', reimbursementRouter);
 router.use('/notifications', notificationRouter);
+router.use('/attendance', attendanceRouter);
 router.use('/admin/reporting', reportingRouter);
