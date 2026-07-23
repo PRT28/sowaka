@@ -24,36 +24,6 @@ class QuickActionsController extends ChangeNotifier {
   void _navigationChanged() => notifyListeners();
 }
 
-class _PunchTile extends StatelessWidget {
-  const _PunchTile({required this.label, required this.value});
-  final String label;
-  final String value;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: _Q.line),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: _QText.eyebrow),
-        const SizedBox(height: 5),
-        Text(
-          value,
-          style: const TextStyle(
-            color: _Q.ink,
-            fontWeight: FontWeight.w800,
-            fontSize: 16,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 enum _QuickPage {
   home,
   leave,
@@ -67,6 +37,40 @@ enum _QuickPage {
 }
 
 enum _QuickFlow { leave, overtime, reimbursement }
+
+enum _AttendanceKind {
+  present,
+  attention,
+  weekoff,
+  halfDay,
+  leaveApproved,
+  leavePending,
+  holiday,
+  future,
+  regularizationPending,
+}
+
+class _AttendanceDayView {
+  const _AttendanceDayView({
+    required this.date,
+    required this.kind,
+    required this.title,
+    required this.cellLabel,
+    this.record,
+    this.regularization,
+    this.leave,
+    this.holiday,
+  });
+
+  final DateTime date;
+  final _AttendanceKind kind;
+  final String title;
+  final String cellLabel;
+  final AttendanceRecord? record;
+  final AttendanceRegularization? regularization;
+  final LeaveRequest? leave;
+  final CompanyHoliday? holiday;
+}
 
 const int _maxLeaveApplyDays = 30;
 
@@ -108,6 +112,7 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     DateTime.now().year,
     DateTime.now().month,
   );
+  bool _attendanceListView = true;
 
   @override
   void initState() {
@@ -251,6 +256,14 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               title: 'Reimbursements',
               subtitle: 'Claim · view claims',
               onTap: () => _open(_QuickPage.reimbursements),
+            ),
+            _GroupedActionRow(
+              icon: Icons.calendar_month_outlined,
+              color: _Q.terraDeep,
+              tint: _Q.terraTint,
+              title: 'Calendar',
+              subtitle: 'Attendance · punches · regularize',
+              onTap: () => _open(_QuickPage.calendar),
               last: true,
             ),
           ],
@@ -267,14 +280,6 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
               title: 'View policy',
               subtitle: 'Leave, payroll, POSH…',
               onTap: () => _open(_QuickPage.policies),
-            ),
-            _GroupedActionRow(
-              icon: Icons.calendar_month_outlined,
-              color: _Q.terraDeep,
-              tint: _Q.terraTint,
-              title: 'Calendar',
-              subtitle: 'Attendance · punches · regularize',
-              onTap: () => _open(_QuickPage.calendar),
               last: true,
             ),
           ],
@@ -671,6 +676,67 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   }
 
   Widget _calendar() {
+    final days = _attendanceDays();
+    return _HubScaffold(
+      key: const ValueKey('calendar'),
+      title: 'Attendance calendar',
+      onBack: _back,
+      children: [
+        Row(
+          children: [
+            _AttendanceCalendarArrow(
+              onPressed: () => _changeAttendanceMonth(-1),
+              icon: Icons.chevron_left_rounded,
+            ),
+            Expanded(
+              child: Text(
+                '${_monthName(_attendanceMonth.month)} ${_attendanceMonth.year}',
+                textAlign: TextAlign.center,
+                style: _QText.topbar,
+              ),
+            ),
+            _AttendanceCalendarArrow(
+              onPressed: () => _changeAttendanceMonth(1),
+              icon: Icons.chevron_right_rounded,
+            ),
+          ],
+        ),
+        const SizedBox(height: 28),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _AttendanceViewSwitch(
+            list: _attendanceListView,
+            onChanged: (list) => setState(() => _attendanceListView = list),
+          ),
+        ),
+        const SizedBox(height: 24),
+        const Text(
+          'Tap a future working day to start a leave request.',
+          style: _QText.subtitle,
+        ),
+        const SizedBox(height: 20),
+        if (_attendanceListView)
+          ...days.map(
+            (day) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _AttendanceListCard(
+                day: day,
+                today: _sameDay(day.date, DateTime.now()),
+                onTap: () => _openAttendanceDay(day),
+              ),
+            ),
+          )
+        else
+          _AttendanceMonthGrid(
+            month: _attendanceMonth,
+            days: days,
+            onTap: _openAttendanceDay,
+          ),
+      ],
+    );
+  }
+
+  List<_AttendanceDayView> _attendanceDays() {
     final records = {
       for (final record in widget.dashboard.attendance)
         _dateKey(record.workDate): record,
@@ -679,127 +745,142 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
       for (final request in widget.dashboard.regularizations)
         _dateKey(request.workDate): request,
     };
-    final firstWeekday =
-        DateTime(_attendanceMonth.year, _attendanceMonth.month, 1).weekday % 7;
-    final days = DateTime(
+    final now = DateTime.now();
+    final count = DateTime(
       _attendanceMonth.year,
       _attendanceMonth.month + 1,
       0,
     ).day;
-    return _HubScaffold(
-      key: const ValueKey('calendar'),
-      title: 'Attendance calendar',
-      onBack: _back,
-      children: [
-        Row(
-          children: [
-            IconButton(
-              onPressed: () => _changeAttendanceMonth(-1),
-              icon: const Icon(Icons.chevron_left),
-            ),
-            Expanded(
-              child: Text(
-                '${_monthName(_attendanceMonth.month)} ${_attendanceMonth.year}',
-                textAlign: TextAlign.center,
-                style: _QText.heroSmall,
-              ),
-            ),
-            IconButton(
-              onPressed: () => _changeAttendanceMonth(1),
-              icon: const Icon(Icons.chevron_right),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: const ['S', 'M', 'T', 'W', 'T', 'F', 'S']
-              .map(
-                (d) => Expanded(
-                  child: Text(
-                    d,
-                    textAlign: TextAlign.center,
-                    style: _QText.eyebrow,
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-        const SizedBox(height: 8),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            mainAxisSpacing: 7,
-            crossAxisSpacing: 7,
-          ),
-          itemCount: firstWeekday + days,
-          itemBuilder: (context, index) {
-            if (index < firstWeekday) return const SizedBox.shrink();
-            final day = DateTime(
-              _attendanceMonth.year,
-              _attendanceMonth.month,
-              index - firstWeekday + 1,
-            );
-            final record = records[_dateKey(day)];
-            final request = requests[_dateKey(day)];
-            final future = day.isAfter(DateTime.now());
-            final weekoff = widget.dashboard.weekoffDays.contains(
-              day.weekday % 7,
-            );
-            final complete =
-                record?.punchIn != null && record?.punchOut != null;
-            final attention =
-                !future && !weekoff && !complete && request == null;
-            final color = request != null
-                ? _Q.gold
-                : complete
-                ? _Q.teal
-                : attention
-                ? _Q.terra
-                : _Q.inkFaint;
-            return InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: future
-                  ? null
-                  : () => _openAttendanceDay(day, record, request, weekoff),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: .10),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color.withValues(alpha: .28)),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${day.day}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: future ? _Q.inkFaint : _Q.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: color,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 18),
-        const _InfoCard(
-          'Tap a day to see punch-in and punch-out. Missing records can be regularized or submitted as leave.',
-        ),
-      ],
-    );
+    return List.generate(count, (index) {
+      final date = DateTime(
+        _attendanceMonth.year,
+        _attendanceMonth.month,
+        index + 1,
+      );
+      final key = _dateKey(date);
+      final record = records[key];
+      final regularization = requests[key];
+      LeaveRequest? leave;
+      for (final item in widget.dashboard.myLeaves) {
+        if (!date.isBefore(_dateOnly(item.start)) &&
+            !date.isAfter(_dateOnly(item.end))) {
+          leave = item;
+          break;
+        }
+      }
+      CompanyHoliday? holiday;
+      for (final item in widget.dashboard.holidays) {
+        if (_sameDay(item.date, date)) {
+          holiday = item;
+          break;
+        }
+      }
+      OvertimeRequest? overtime;
+      for (final item in widget.dashboard.myOvertime) {
+        if (_sameDay(item.workDate, date)) {
+          overtime = item;
+          break;
+        }
+      }
+      final future = date.isAfter(_dateOnly(now));
+      final weekoff = widget.dashboard.weekoffDays.contains(date.weekday % 7);
+      final complete = record?.punchIn != null && record?.punchOut != null;
+      final duration = complete
+          ? record!.punchOut!.difference(record.punchIn!)
+          : null;
+      final approvedRegularization =
+          regularization?.status.toLowerCase() == 'approved';
+      final pendingRegularization =
+          regularization != null &&
+          regularization.status.toLowerCase() == 'pending';
+      final leaveStatus = leave?.decision;
+      final overtimeSuffix = overtime == null
+          ? ''
+          : ' · ${overtime.decision == LeaveDecision.approved ? 'OT · Approved' : 'OT'}';
+
+      if (holiday != null) {
+        return _AttendanceDayView(
+          date: date,
+          kind: _AttendanceKind.holiday,
+          title: holiday.name,
+          cellLabel: 'Holiday',
+          holiday: holiday,
+          leave: leave,
+          record: record,
+        );
+      }
+      if (leave != null && leaveStatus != LeaveDecision.declined) {
+        final approved = leaveStatus == LeaveDecision.approved;
+        return _AttendanceDayView(
+          date: date,
+          kind: approved
+              ? _AttendanceKind.leaveApproved
+              : _AttendanceKind.leavePending,
+          title: 'Leave · ${approved ? 'Approved' : 'Pending'}',
+          cellLabel: approved ? 'Approved' : 'Pending',
+          leave: leave,
+          record: record,
+        );
+      }
+      if (approvedRegularization) {
+        return _AttendanceDayView(
+          date: date,
+          kind: _AttendanceKind.present,
+          title: 'Present (regularised)',
+          cellLabel: '',
+          record: record,
+          regularization: regularization,
+        );
+      }
+      if (pendingRegularization) {
+        return _AttendanceDayView(
+          date: date,
+          kind: _AttendanceKind.regularizationPending,
+          title: 'Regularization · Pending',
+          cellLabel: 'Pending',
+          record: record,
+          regularization: regularization,
+        );
+      }
+      if (complete) {
+        final halfDay = duration! < const Duration(hours: 6);
+        return _AttendanceDayView(
+          date: date,
+          kind: halfDay ? _AttendanceKind.halfDay : _AttendanceKind.present,
+          title:
+              '${halfDay ? 'Half day' : 'Present'} · ${_duration(duration)}$overtimeSuffix',
+          cellLabel: halfDay ? 'Half day' : (overtime == null ? '' : 'OT'),
+          record: record,
+        );
+      }
+      if (record != null || (!future && !weekoff)) {
+        final missing = record?.punchIn == null
+            ? 'missing punch-in'
+            : 'missing punch-out';
+        return _AttendanceDayView(
+          date: date,
+          kind: _AttendanceKind.attention,
+          title: 'Needs attention · $missing',
+          cellLabel: 'Attention',
+          record: record,
+          regularization: regularization,
+        );
+      }
+      if (weekoff) {
+        return _AttendanceDayView(
+          date: date,
+          kind: _AttendanceKind.weekoff,
+          title: 'Weekly off',
+          cellLabel: 'Week off',
+        );
+      }
+      return _AttendanceDayView(
+        date: date,
+        kind: _AttendanceKind.future,
+        title: future ? 'Working day' : 'No record',
+        cellLabel: '',
+      );
+    });
   }
 
   Future<void> _changeAttendanceMonth(int delta) async {
@@ -811,85 +892,114 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     await widget.bloc.add(LoadAttendanceMonth(month));
   }
 
-  Future<void> _openAttendanceDay(
-    DateTime day,
-    AttendanceRecord? record,
-    AttendanceRegularization? request,
-    bool weekoff,
-  ) async {
+  Future<void> _openAttendanceDay(_AttendanceDayView day) async {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => Padding(
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
         padding: EdgeInsets.fromLTRB(
-          22,
-          0,
-          22,
-          22 + MediaQuery.viewInsetsOf(sheetContext).bottom,
+          20,
+          12,
+          20,
+          22 + MediaQuery.viewPaddingOf(sheetContext).bottom,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const _SheetHandle(),
+            const SizedBox(height: 24),
             Text(
-              '${_weekday(day.weekday)}, ${_short(day)}',
-              style: _QText.heroSmall,
+              '${_weekday(day.date.weekday)}, ${day.date.day} ${_shortMonth(day.date.month)} ${day.date.year}',
+              style: const TextStyle(
+                color: _Q.ink,
+                fontSize: 19,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 6),
-            Text(
-              weekoff
-                  ? 'Weekly off'
-                  : request != null
-                  ? 'Regularization · ${request.status}'
-                  : record == null
-                  ? 'Needs attention · no attendance record'
-                  : 'Attendance punches',
-              style: _QText.subtitle,
-            ),
-            if (!weekoff) ...[
+            Text(_sheetStatus(day), style: _QText.subtitle),
+            if (day.kind == _AttendanceKind.leaveApproved ||
+                day.kind == _AttendanceKind.leavePending) ...[
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: _PunchTile(
-                      label: 'IN',
-                      value: _clock(record?.punchIn),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _PunchTile(
-                      label: 'OUT',
-                      value: _clock(record?.punchOut),
-                    ),
-                  ),
-                ],
+              _SheetValueRow(label: 'Type', value: day.leave?.type ?? 'Leave'),
+              const SizedBox(height: 8),
+              _SheetValueRow(
+                label: 'Status',
+                value: _decisionLabel(day.leave?.decision),
               ),
-            ],
-            if (!weekoff &&
-                request == null &&
-                (record?.punchIn == null || record?.punchOut == null)) ...[
-              const SizedBox(height: 16),
-              FilledButton(
+              const SizedBox(height: 20),
+              _SheetOutlineButton(
+                label: day.kind == _AttendanceKind.leaveApproved
+                    ? 'Cancel leave'
+                    : 'Withdraw request',
                 onPressed: () {
                   Navigator.pop(sheetContext);
-                  _showRegularization(day);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Leave cancellation requested'),
+                    ),
+                  );
                 },
-                child: const Text('Request as present'),
               ),
-              TextButton(
+            ] else if (day.kind != _AttendanceKind.weekoff &&
+                day.kind != _AttendanceKind.holiday &&
+                day.kind != _AttendanceKind.future) ...[
+              const SizedBox(height: 20),
+              _AttendancePunchRow(
+                label: 'IN',
+                value: _clock(day.record?.punchIn),
+                missing: day.record?.punchIn == null,
+              ),
+              const SizedBox(height: 10),
+              _AttendancePunchRow(
+                label: 'OUT',
+                value: _clock(day.record?.punchOut),
+                missing: day.record?.punchOut == null,
+              ),
+              if (day.kind == _AttendanceKind.attention) ...[
+                const SizedBox(height: 26),
+                const _AttendanceDeadlineWarning(),
+                const SizedBox(height: 16),
+                _SheetPrimaryButton(
+                  label: 'Request as present',
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _showRegularization(day.date);
+                  },
+                ),
+                const SizedBox(height: 10),
+                _SheetOutlineButton(
+                  label: 'Apply leave instead',
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _start(_QuickFlow.leave);
+                  },
+                ),
+              ] else if (day.kind == _AttendanceKind.present ||
+                  day.kind == _AttendanceKind.halfDay) ...[
+                const SizedBox(height: 26),
+                _SheetOutlineButton(
+                  label: 'Add overtime',
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    _start(_QuickFlow.overtime);
+                  },
+                ),
+              ],
+            ] else if (day.kind == _AttendanceKind.future) ...[
+              const SizedBox(height: 24),
+              _SheetPrimaryButton(
+                label: 'Apply leave',
                 onPressed: () {
                   Navigator.pop(sheetContext);
                   _start(_QuickFlow.leave);
                 },
-                child: const Text('Apply leave instead'),
-              ),
-            ],
-            if (request != null) ...[
-              const SizedBox(height: 14),
-              _InfoCard(
-                '${request.period.replaceAll('_', ' ')} · ${request.note}\nStatus: ${request.status}',
               ),
             ],
           ],
@@ -904,57 +1014,117 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
+        builder: (context, setSheetState) => Container(
           padding: EdgeInsets.fromLTRB(
-            22,
-            24,
-            22,
+            20,
+            12,
+            20,
             22 + MediaQuery.viewInsetsOf(context).bottom,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('Request as present', style: _QText.heroSmall),
-              const SizedBox(height: 6),
-              Text(_short(day), style: _QText.subtitle),
-              const SizedBox(height: 18),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'full_day', label: Text('Full day')),
-                  ButtonSegment(value: 'first_half', label: Text('First half')),
-                  ButtonSegment(
-                    value: 'second_half',
-                    label: Text('Second half'),
-                  ),
-                ],
-                selected: {period},
-                onSelectionChanged: (v) =>
-                    setSheetState(() => period = v.first),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: note,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Explain what happened',
+              const _SheetHandle(),
+              const SizedBox(height: 24),
+              const Text(
+                'Request as present',
+                style: TextStyle(
+                  color: _Q.ink,
+                  fontSize: 19,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () async {
-                  if (note.text.trim().isEmpty) return;
-                  final ok = await widget.bloc.add(
-                    SubmitAttendanceRegularization(
-                      workDate: day,
-                      period: period,
-                      note: note.text.trim(),
+              const SizedBox(height: 6),
+              const Text(
+                'This will be sent to your manager for approval.',
+                style: _QText.subtitle,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'HOW MUCH OF THE DAY WERE YOU PRESENT?',
+                style: _QText.eyebrow,
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  for (final option in const [
+                    ('full_day', 'Full day'),
+                    ('first_half', 'First half'),
+                    ('second_half', 'Second half'),
+                  ]) ...[
+                    Expanded(
+                      child: _RegularizationOption(
+                        label: option.$2,
+                        selected: period == option.$1,
+                        onTap: () => setSheetState(() => period = option.$1),
+                      ),
                     ),
-                  );
-                  if (ok && dialogContext.mounted) Navigator.pop(dialogContext);
-                },
-                child: const Text('Send to manager'),
+                    if (option.$1 != 'second_half') const SizedBox(width: 8),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 24),
+              const Text('NOTE TO MANAGER', style: _QText.eyebrow),
+              const SizedBox(height: 10),
+              TextField(
+                controller: note,
+                maxLines: 1,
+                style: const TextStyle(fontSize: 14),
+                decoration: InputDecoration(
+                  hintText: 'e.g. Forgot to punch out yesterday...',
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 18,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    borderSide: const BorderSide(color: _Q.line, width: 2),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    borderSide: const BorderSide(color: _Q.line, width: 2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
+              Row(
+                children: [
+                  Expanded(
+                    child: _SheetSecondaryButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.pop(dialogContext),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: _SheetPrimaryButton(
+                      label: 'Confirm & send',
+                      onPressed: () async {
+                        if (note.text.trim().isEmpty) return;
+                        final ok = await widget.bloc.add(
+                          SubmitAttendanceRegularization(
+                            workDate: day,
+                            period: period,
+                            note: note.text.trim(),
+                          ),
+                        );
+                        if (ok && dialogContext.mounted) {
+                          Navigator.pop(dialogContext);
+                        }
+                      },
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -969,6 +1139,53 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
   static String _clock(DateTime? value) => value == null
       ? 'Missing'
       : '${value.hour % 12 == 0 ? 12 : value.hour % 12}:${value.minute.toString().padLeft(2, '0')} ${value.hour >= 12 ? 'PM' : 'AM'}';
+  static String _duration(Duration value) {
+    final hours = value.inHours;
+    final minutes = value.inMinutes.remainder(60);
+    return minutes == 0 ? '${hours}h' : '${hours}h ${minutes}m';
+  }
+
+  static String _sheetStatus(_AttendanceDayView day) {
+    switch (day.kind) {
+      case _AttendanceKind.attention:
+        return 'Needs attention';
+      case _AttendanceKind.leaveApproved:
+        return 'Leave · approved · ${day.leave?.type ?? 'Leave'}';
+      case _AttendanceKind.leavePending:
+        return 'Leave · pending · ${day.leave?.type ?? 'Leave'}';
+      case _AttendanceKind.weekoff:
+        return 'Weekly off';
+      case _AttendanceKind.holiday:
+        return day.holiday?.name ?? 'Holiday';
+      case _AttendanceKind.regularizationPending:
+        return 'Regularization · pending';
+      case _AttendanceKind.future:
+        return 'Working day';
+      default:
+        return day.kind == _AttendanceKind.halfDay ? 'Half day' : 'Present';
+    }
+  }
+
+  static String _decisionLabel(LeaveDecision? decision) => switch (decision) {
+    LeaveDecision.approved => 'Approved',
+    LeaveDecision.declined => 'Declined',
+    _ => 'Pending',
+  };
+
+  static String _shortMonth(int month) => const [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][month - 1];
   static String _monthName(int month) => const [
     'January',
     'February',
@@ -1576,6 +1793,595 @@ class _QuickActionsScreenState extends State<QuickActionsScreen> {
     if (!fullDay) return true;
     return _isOvertimeWeekoff(day) || _isCompanyHoliday(day);
   }
+}
+
+class _AttendanceCalendarArrow extends StatelessWidget {
+  const _AttendanceCalendarArrow({required this.onPressed, required this.icon});
+  final VoidCallback onPressed;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: _Q.terraTint,
+    borderRadius: BorderRadius.circular(16),
+    child: InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(16),
+      child: SizedBox(
+        width: 46,
+        height: 46,
+        child: Icon(icon, color: _Q.terra, size: 23),
+      ),
+    ),
+  );
+}
+
+class _AttendanceViewSwitch extends StatelessWidget {
+  const _AttendanceViewSwitch({required this.list, required this.onChanged});
+  final bool list;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(5),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF0EBE3),
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _AttendanceSwitchItem(
+          label: 'List',
+          selected: list,
+          onTap: () => onChanged(true),
+        ),
+        _AttendanceSwitchItem(
+          label: 'Month',
+          selected: !list,
+          onTap: () => onChanged(false),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AttendanceSwitchItem extends StatelessWidget {
+  const _AttendanceSwitchItem({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(14),
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      decoration: BoxDecoration(
+        color: selected ? _Q.ink : Colors.transparent,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: selected ? Colors.white : _Q.inkSoft,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
+}
+
+class _AttendancePalette {
+  const _AttendancePalette(this.background, this.foreground, this.border);
+  final Color background;
+  final Color foreground;
+  final Color border;
+}
+
+_AttendancePalette _attendancePalette(_AttendanceKind kind) => switch (kind) {
+  _AttendanceKind.present => const _AttendancePalette(
+    Color(0xFFE9EBE0),
+    Color(0xFF4C5840),
+    Colors.transparent,
+  ),
+  _AttendanceKind.attention => const _AttendancePalette(
+    Color(0xFFFBE6E3),
+    Color(0xFFE0483B),
+    Color(0xFFF2B0A9),
+  ),
+  _AttendanceKind.weekoff => const _AttendancePalette(
+    Color(0xFFF4ECDD),
+    Color(0xFF8C5A10),
+    Colors.transparent,
+  ),
+  _AttendanceKind.halfDay ||
+  _AttendanceKind.holiday => const _AttendancePalette(
+    Color(0xFFF7F0E2),
+    Color(0xFF8C5A10),
+    Color(0xFFEBCB78),
+  ),
+  _AttendanceKind.leaveApproved => const _AttendancePalette(
+    Color(0xFF377BB8),
+    Colors.white,
+    Color(0xFF377BB8),
+  ),
+  _AttendanceKind.leavePending ||
+  _AttendanceKind.regularizationPending => const _AttendancePalette(
+    Colors.white,
+    Color(0xFF285A88),
+    Color(0xFF377BB8),
+  ),
+  _AttendanceKind.future => const _AttendancePalette(
+    Colors.white,
+    _Q.ink,
+    Color(0xFFE8DFD3),
+  ),
+};
+
+class _AttendanceListCard extends StatelessWidget {
+  const _AttendanceListCard({
+    required this.day,
+    required this.today,
+    required this.onTap,
+  });
+  final _AttendanceDayView day;
+  final bool today;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _attendancePalette(day.kind);
+    return Material(
+      color: palette.background,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(22),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6.5),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: today ? _Q.ink : palette.border,
+              width: today ? 2.2 : 1.2,
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 58,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _weekday(day.date.weekday).substring(0, 3).toUpperCase(),
+                      style: TextStyle(
+                        color: palette.foreground.withValues(alpha: .68),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    Text(
+                      '${day.date.day}',
+                      style: TextStyle(
+                        color: palette.foreground,
+                        fontSize: 20,
+                        height: 1.05,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 36,
+                color: palette.foreground.withValues(alpha: .12),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  day.title,
+                  style: TextStyle(
+                    color: palette.foreground,
+                    fontSize: 14,
+                    height: 1.25,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: palette.foreground.withValues(alpha: .58),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AttendanceMonthGrid extends StatelessWidget {
+  const _AttendanceMonthGrid({
+    required this.month,
+    required this.days,
+    required this.onTap,
+  });
+  final DateTime month;
+  final List<_AttendanceDayView> days;
+  final ValueChanged<_AttendanceDayView> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final leading = DateTime(month.year, month.month, 1).weekday % 7;
+    return Column(
+      children: [
+        Row(
+          children: const ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+              .map(
+                (label) => Expanded(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: _Q.inkFaint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 8),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            mainAxisSpacing: 7,
+            crossAxisSpacing: 5,
+            childAspectRatio: .78,
+          ),
+          itemCount: leading + days.length,
+          itemBuilder: (context, index) {
+            if (index < leading) return const SizedBox.shrink();
+            final day = days[index - leading];
+            return _AttendanceMonthCell(
+              day: day,
+              today: _sameDay(day.date, DateTime.now()),
+              onTap: () => onTap(day),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _AttendanceMonthCell extends StatelessWidget {
+  const _AttendanceMonthCell({
+    required this.day,
+    required this.today,
+    required this.onTap,
+  });
+  final _AttendanceDayView day;
+  final bool today;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = _attendancePalette(day.kind);
+    final dashed =
+        day.kind == _AttendanceKind.leavePending ||
+        day.kind == _AttendanceKind.regularizationPending;
+    final content = Material(
+      color: palette.background,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: dashed
+                ? null
+                : Border.all(
+                    color: today ? _Q.ink : palette.border,
+                    width: today ? 2.1 : 1.2,
+                  ),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                '${day.date.day}',
+                style: TextStyle(
+                  color: palette.foreground,
+                  fontSize: 15,
+                  height: 1,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (day.cellLabel.isNotEmpty) ...[
+                const SizedBox(height: 5),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(
+                    day.cellLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: palette.foreground,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    return dashed
+        ? CustomPaint(
+            foregroundPainter: _DashedRoundRectPainter(
+              color: palette.border,
+              radius: 16,
+            ),
+            child: content,
+          )
+        : content;
+  }
+}
+
+class _DashedRoundRectPainter extends CustomPainter {
+  const _DashedRoundRectPainter({required this.color, required this.radius});
+  final Color color;
+  final double radius;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..addRRect(
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)),
+      );
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    for (final metric in path.computeMetrics()) {
+      for (double distance = 0; distance < metric.length; distance += 8) {
+        canvas.drawPath(metric.extractPath(distance, distance + 4), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedRoundRectPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.radius != radius;
+}
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Container(
+      width: 44,
+      height: 5,
+      decoration: BoxDecoration(
+        color: const Color(0xFFE9E2D8),
+        borderRadius: BorderRadius.circular(4),
+      ),
+    ),
+  );
+}
+
+class _AttendancePunchRow extends StatelessWidget {
+  const _AttendancePunchRow({
+    required this.label,
+    required this.value,
+    required this.missing,
+  });
+  final String label;
+  final String value;
+  final bool missing;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: missing ? const Color(0xFFFBE4E1) : const Color(0xFFE9EBE0),
+          borderRadius: BorderRadius.circular(7),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: missing ? const Color(0xFFE0483B) : _Q.sage,
+            fontWeight: FontWeight.w900,
+            fontSize: 12,
+          ),
+        ),
+      ),
+      const SizedBox(width: 14),
+      Text(value, style: const TextStyle(color: _Q.ink, fontSize: 14)),
+    ],
+  );
+}
+
+class _AttendanceDeadlineWarning extends StatelessWidget {
+  const _AttendanceDeadlineWarning();
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: const Color(0xFFFBE4E1),
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.warning_amber_rounded, color: Color(0xFF8B302B)),
+        SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            'Request as present or apply leave within the attendance window — after that, this day counts as loss of pay.',
+            style: TextStyle(
+              color: Color(0xFF8B302B),
+              fontSize: 13,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SheetValueRow extends StatelessWidget {
+  const _SheetValueRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF8F4EE),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Row(
+      children: [
+        Text(label, style: const TextStyle(color: _Q.inkSoft, fontSize: 14)),
+        const Spacer(),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 14,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SheetPrimaryButton extends StatelessWidget {
+  const _SheetPrimaryButton({required this.label, required this.onPressed});
+  final String label;
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 58,
+    child: FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFC75C36),
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+      ),
+      child: Text(label),
+    ),
+  );
+}
+
+class _SheetOutlineButton extends StatelessWidget {
+  const _SheetOutlineButton({required this.label, required this.onPressed});
+  final String label;
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 58,
+    child: OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: _Q.ink,
+        side: const BorderSide(color: Color(0xFFE8DFD3), width: 1.4),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+      ),
+      child: Text(label),
+    ),
+  );
+}
+
+class _SheetSecondaryButton extends StatelessWidget {
+  const _SheetSecondaryButton({required this.label, required this.onPressed});
+  final String label;
+  final VoidCallback onPressed;
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    height: 58,
+    child: FilledButton(
+      onPressed: onPressed,
+      style: FilledButton.styleFrom(
+        backgroundColor: const Color(0xFFF5F0E9),
+        foregroundColor: _Q.ink,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+      ),
+      child: Text(label),
+    ),
+  );
+}
+
+class _RegularizationOption extends StatelessWidget {
+  const _RegularizationOption({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(17),
+    child: Container(
+      height: 58,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: selected ? _Q.terraTint : const Color(0xFFF5F0E9),
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(
+          color: selected ? _Q.terra : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: selected ? _Q.terraDeep : _Q.inkSoft,
+          fontSize: 15,
+          fontWeight: FontWeight.w800,
+        ),
+      ),
+    ),
+  );
 }
 
 class _HubScaffold extends StatelessWidget {
